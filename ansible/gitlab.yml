@@ -3,29 +3,5 @@
   hosts: gitlab
   become: true
 
-  tasks:
-    - name: Update apt cache
-      ansible.builtin.apt:
-        update_cache: true
-        cache_valid_time: 3600
-
-    - name: Install GitLab prerequisites
-      ansible.builtin.apt:
-        name:
-          - curl
-          - openssh-server
-          - ca-certificates
-          - tzdata
-          - python3-debian
-        state: present
-
-    - name: Add GitLab package repository
-      ansible.builtin.deb822_repository:
-        name: gitlab
-        types: deb
-        uris: https://packages.gitlab.com/gitlab/gitlab-ee/ubuntu/
-        suites: "{{ ansible_distribution_release }}"
-        components:
-          - main
-        signed_by: https://packages.gitlab.com/gitlab/gitlab-ee/gpgkey
-        state: present
+  roles:
+    - gitlab

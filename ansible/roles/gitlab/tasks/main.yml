@@ -1,0 +1,48 @@
+---
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install GitLab prerequisites
+  ansible.builtin.apt:
+    name:
+      - curl
+      - openssh-server
+      - ca-certificates
+      - tzdata
+      - python3-debian
+    state: present
+
+- name: Add GitLab package repository
+  ansible.builtin.deb822_repository:
+    name: gitlab
+    types: deb
+    uris: https://packages.gitlab.com/gitlab/gitlab-ee/ubuntu/
+    suites: "{{ ansible_distribution_release }}"
+    components:
+      - main
+    signed_by: https://packages.gitlab.com/gitlab/gitlab-ee/gpgkey
+    state: present
+
+- name: Install GitLab
+  ansible.builtin.apt:
+    name: gitlab-ee
+    state: present
+    update_cache: true
+
+- name: Configure GitLab external URL and reverse proxy
+  ansible.builtin.blockinfile:
+    path: /etc/gitlab/gitlab.rb
+    marker: "# {mark} ANSIBLE MANAGED GITLAB CONFIG"
+    block: |
+      external_url '{{ gitlab_external_url }}'
+
+      nginx['listen_port'] = 80
+      nginx['listen_https'] = false
+
+      nginx['proxy_set_headers'] = {
+        "X-Forwarded-Proto" => "https",
+        "X-Forwarded-Ssl" => "on"
+      }
+  notify: Reconfigure GitLab

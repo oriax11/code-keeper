@@ -1,6 +1,5 @@
 gitlab_external_url: "https://6ab50188d67b817b0b958cfa-7b42e2.node-eu-14f6.iximiuz.com"
 gitlab_api_url: "{{ gitlab_external_url }}/api/v4"
-gitlab_project_id: 1
 
 gitlab_project_members:
   - username: "yaouzddou"

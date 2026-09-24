@@ -1,0 +1,222 @@
+---
+# --- Legacy cleanup (no-op once the old docker.asc line is gone) -------------
+- name: Remove Docker repository using docker.asc
+  ansible.builtin.lineinfile:
+    path: /etc/apt/sources.list.d/docker.list
+    line: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    state: absent
+
+# --- Prerequisites -----------------------------------------------------------
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install runner prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+    state: present
+
+# --- Docker ------------------------------------------------------------------
+- name: Create Docker keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Download Docker GPG key
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+
+- name: Convert Docker GPG key to keyring format
+  ansible.builtin.command:
+    cmd: >
+      gpg --dearmor --yes
+      --output /etc/apt/keyrings/docker.gpg
+      /etc/apt/keyrings/docker.asc
+    creates: /etc/apt/keyrings/docker.gpg
+
+- name: Ensure Docker keyring is world-readable
+  ansible.builtin.file:
+    path: /etc/apt/keyrings/docker.gpg
+    mode: "0644"
+
+# apt_repository refreshes the cache itself, but only when the repo changes
+- name: Configure Docker repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg]
+      https://download.docker.com/linux/ubuntu
+      {{ ansible_distribution_release }} stable
+    state: present
+    filename: docker
+
+- name: Install Docker
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+
+- name: Enable Docker
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+
+# --- GitLab Runner package ---------------------------------------------------
+- name: Download GitLab Runner repository script
+  ansible.builtin.get_url:
+    url: https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh
+    dest: /tmp/gitlab-runner-repository.sh
+    mode: "0755"
+
+- name: Add GitLab Runner repository
+  ansible.builtin.command:
+    cmd: /tmp/gitlab-runner-repository.sh
+    creates: /etc/apt/sources.list.d/runner_gitlab-runner.list
+  register: gitlab_runner_repo
+
+- name: Refresh apt cache after adding GitLab Runner repository
+  ansible.builtin.apt:
+    update_cache: true
+  when: gitlab_runner_repo is changed
+
+- name: Install GitLab Runner
+  ansible.builtin.apt:
+    name: gitlab-runner
+    state: present
+
+- name: Add GitLab Runner to Docker group
+  ansible.builtin.user:
+    name: gitlab-runner
+    groups: docker
+    append: true
+  notify: Restart GitLab Runner
+
+# --- Runner registration -----------------------------------------------------
+# NOTE: `gitlab-runner list` writes to stderr, so check both streams.
+- name: Check whether GitLab Runner is already registered locally
+  ansible.builtin.command:
+    cmd: gitlab-runner list
+  register: gitlab_runner_list
+  changed_when: false
+  failed_when: false
+
+- name: Determine whether registration is needed
+  ansible.builtin.set_fact:
+    runner_needs_registration: >-
+      {{ gitlab_runner_name not in (gitlab_runner_list.stdout ~ gitlab_runner_list.stderr) }}
+
+- name: Register runner with GitLab and locally
+  when: runner_needs_registration | bool
+  block:
+    - name: Get Code-Keeper project
+      ansible.builtin.uri:
+        url: "{{ gitlab_api_url }}/projects/root%2Fcode-keeper"
+        method: GET
+        headers:
+          PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+        status_code: 200
+        return_content: true
+      register: code_keeper_project
+      no_log: true
+
+    - name: Set Code-Keeper project ID
+      ansible.builtin.set_fact:
+        code_keeper_project_id: "{{ code_keeper_project.json.id }}"
+
+    - name: Get existing Code-Keeper project runners
+      ansible.builtin.uri:
+        url: "{{ gitlab_api_url }}/projects/{{ code_keeper_project_id }}/runners?per_page=100"
+        method: GET
+        headers:
+          PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+        status_code: 200
+        return_content: true
+      register: project_runners
+      no_log: true
+
+    - name: Find existing Code-Keeper runner
+      ansible.builtin.set_fact:
+        existing_runner: >-
+          {{
+            project_runners.json
+            | selectattr('description', 'equalto', gitlab_runner_name)
+            | list
+            | first
+            | default(none)
+          }}
+
+    # Reuse the existing GitLab-side runner: rotate its token for local registration
+    - name: Reset runner authentication token (existing runner)
+      ansible.builtin.uri:
+        url: "{{ gitlab_api_url }}/runners/{{ existing_runner.id }}/reset_authentication_token"
+        method: POST
+        headers:
+          PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+        status_code: 201
+        return_content: true
+      register: reset_runner_token
+      no_log: false
+      when: existing_runner is not none
+
+    - name: Use token from reset
+      ansible.builtin.set_fact:
+        runner_auth_token: "{{ reset_runner_token.json.token }}"
+      no_log: true
+      when: existing_runner is not none
+
+    # Otherwise create it; the creation response already contains the token
+    - name: Create Code-Keeper project runner
+      ansible.builtin.uri:
+        url: "{{ gitlab_api_url }}/user/runners"
+        method: POST
+        headers:
+          PRIVATE-TOKEN: "{{ gitlab_runner_creation_token }}"
+        body_format: form-urlencoded
+        body:
+          runner_type: "project_type"
+          project_id: "{{ code_keeper_project_id }}"
+          description: "{{ gitlab_runner_name }}"
+          tag_list: "{{ gitlab_runner_tags | join(',') }}"
+          run_untagged: false
+          locked: true
+        status_code: 201
+        return_content: true
+      register: created_runner
+      no_log: true
+      when: existing_runner is none
+
+    - name: Use token from newly created runner
+      ansible.builtin.set_fact:
+        runner_auth_token: "{{ created_runner.json.token }}"
+      no_log: true
+      when: existing_runner is none
+
+    - name: Register GitLab Runner locally
+      ansible.builtin.command:
+        cmd: >
+          gitlab-runner register
+          --non-interactive
+          --url "{{ gitlab_external_url }}"
+          --token "{{ runner_auth_token }}"
+          --executor "{{ gitlab_runner_executor }}"
+          --docker-image "{{ gitlab_runner_docker_image }}"
+          --description "{{ gitlab_runner_name }}"
+      no_log: false
+      notify: Restart GitLab Runner
+
+- name: Enable GitLab Runner
+  ansible.builtin.systemd:
+    name: gitlab-runner
+    state: started
+    enabled: true

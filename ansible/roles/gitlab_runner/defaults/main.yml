@@ -1,0 +1,14 @@
+---
+gitlab_runner_url: "http://gitlab-01"
+
+gitlab_runner_version: "latest"
+
+gitlab_runner_executor: "docker"
+
+gitlab_runner_name: "code-keeper-runner"
+
+gitlab_runner_docker_image: "alpine:latest"
+
+gitlab_runner_tags:
+  - code-keeper
+  - docker

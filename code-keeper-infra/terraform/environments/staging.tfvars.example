@@ -1,0 +1,41 @@
+# ==============================================================================
+# STAGING ENVIRONMENT CONFIGURATION EXAMPLE
+# Copy to staging.tfvars and customize secret values before running locally.
+# In CI/CD pipelines, secret values are injected via protected environment variables.
+# ==============================================================================
+
+environment = "staging"
+project     = "code-keeper"
+region      = "us-east-1"
+
+# Networking (isolated 10.0.0.0/16 VPC)
+vpc_cidr              = "10.0.0.0/16"
+public_subnet_a_cidr  = "10.0.1.0/24"
+public_subnet_b_cidr  = "10.0.3.0/24"
+private_subnet_a_cidr = "10.0.2.0/24"
+private_subnet_b_cidr = "10.0.4.0/24"
+
+# AWS Budget cost alerts (optional)
+budget_alert_email  = ""
+budget_limit_amount = "70"
+
+# Container Images (can use :staging tag or immutable SHA tags)
+api_gateway_image   = "docker.io/1ee5lim/api-gateway-app:latest"
+inventory_app_image = "docker.io/1ee5lim/inventory-app:latest"
+billing_app_image   = "docker.io/1ee5lim/billing-app:latest"
+rabbit_queue_image  = "docker.io/oriax11/rabbit-queue:latest"
+inventory_db_image  = "docker.io/oriax11/inventory-db:latest"
+billing_db_image    = "docker.io/oriax11/billing-db:latest"
+
+# Database & Broker Credentials
+inventory_db_user     = "postgres"
+inventory_db_password = "replace-with-secure-staging-password"
+inventory_db_name     = "inventory_db"
+
+billing_db_user     = "postgres"
+billing_db_password = "replace-with-secure-staging-password"
+billing_db_name     = "billing_db"
+
+rabbitmq_user     = "rabbit"
+rabbitmq_password = "replace-with-secure-staging-password"
+rabbitmq_queue    = "billing_queue"

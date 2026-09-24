@@ -1,0 +1,24 @@
+gitlab_external_url: "https://6ab50188d67b817b0b958cfa-7b42e2.node-eu-14f6.iximiuz.com"
+gitlab_api_url: "{{ gitlab_external_url }}/api/v4"
+gitlab_project_id: 1
+
+gitlab_project_members:
+  - username: "yaouzddou"
+    access_level: 40
+
+  - username: "aesslima"
+    access_level: 30
+
+gitlab_users:
+  - username: "yaouzddou"
+    name: "Yassine Ouzddou"
+    email: "yassinouzddou@gmail.com"
+
+  - username: "aesslima"
+    name: "ALI ES-SLIMANI"
+    email: "alies120171@gmail.com"
+gitlab_protected_branches:
+  - name: "main"
+    push_access_level: 0
+    merge_access_level: 40
+    allow_force_push: false

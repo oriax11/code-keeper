@@ -46,3 +46,146 @@
         "X-Forwarded-Ssl" => "on"
       }
   notify: Reconfigure GitLab
+
+- name: Verify GitLab API authentication
+  ansible.builtin.uri:
+    url: "{{ gitlab_api_url }}/user"
+    method: GET
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    status_code: 200
+    return_content: false
+  no_log: true
+
+# -------------------------------------------------------------------
+# Users
+# -------------------------------------------------------------------
+
+- name: Create GitLab users
+  ansible.builtin.uri:
+    url: "{{ gitlab_api_url }}/users"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    body_format: form-urlencoded
+    body:
+      email: "{{ item.email }}"
+      username: "{{ item.username }}"
+      name: "{{ item.name }}"
+      password: "{{ gitlab_user_passwords[item.username] }}"
+      skip_confirmation: "true"
+    status_code:
+      - 201
+      - 409
+    return_content: false
+  loop: "{{ gitlab_users }}"
+  no_log: true
+
+# -------------------------------------------------------------------
+# Code-Keeper project
+# -------------------------------------------------------------------
+
+- name: Check if Code-Keeper project exists
+  ansible.builtin.uri:
+    url: "{{ gitlab_api_url }}/projects/root%2Fcode-keeper"
+    method: GET
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    status_code:
+      - 200
+      - 404
+    return_content: true
+  register: code_keeper_project
+
+- name: Create Code-Keeper project
+  ansible.builtin.uri:
+    url: "{{ gitlab_api_url }}/projects"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    body_format: form-urlencoded
+    body:
+      name: "code-keeper"
+      namespace_id: 1
+      visibility: "private"
+      initialize_with_readme: "false"
+    status_code: 201
+    return_content: true
+  register: created_code_keeper
+  when: code_keeper_project.status == 404
+
+- name: Set Code-Keeper project ID
+  ansible.builtin.set_fact:
+    code_keeper_project_id: >-
+      {{
+        code_keeper_project.json.id
+        if code_keeper_project.status == 200
+        else created_code_keeper.json.id
+      }}
+
+- name: Configure Code-Keeper project
+  ansible.builtin.uri:
+    url: "{{ gitlab_api_url }}/projects/{{ code_keeper_project_id }}"
+    method: PUT
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    body_format: form-urlencoded
+    body:
+      visibility: "private"
+      merge_requests_enabled: "true"
+      issues_enabled: "true"
+      wiki_enabled: "true"
+      only_allow_merge_if_pipeline_succeeds: "true"
+      only_allow_merge_if_all_discussions_are_resolved: "true"
+      remove_source_branch_after_merge: "true"
+    status_code: 200
+
+# -------------------------------------------------------------------
+# Project members
+# -------------------------------------------------------------------
+
+- name: Get GitLab users
+  ansible.builtin.uri:
+    url: "{{ gitlab_api_url }}/users?username={{ item.username }}"
+    method: GET
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    status_code: 200
+    return_content: true
+  loop: "{{ gitlab_project_members }}"
+  register: gitlab_member_users
+  no_log: true
+
+- name: Add users to Code-Keeper
+  ansible.builtin.uri:
+    url: "{{ gitlab_api_url }}/projects/{{ code_keeper_project_id }}/members"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    body_format: form-urlencoded
+    body:
+      user_id: "{{ item.json[0].id }}"
+      access_level: "{{ item.item.access_level }}"
+    status_code:
+      - 201
+      - 409
+    return_content: false
+  loop: "{{ gitlab_member_users.results }}"
+  no_log: true
+- name: Protect Code-Keeper main branch
+  ansible.builtin.uri:
+    url: "{{ gitlab_api_url }}/projects/{{ code_keeper_project_id }}/protected_branches"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    body_format: form-urlencoded
+    body:
+      name: "{{ item.name }}"
+      push_access_level: "{{ item.push_access_level }}"
+      merge_access_level: "{{ item.merge_access_level }}"
+      allow_force_push: "{{ item.allow_force_push | lower }}"
+    status_code:
+      - 201
+      - 409
+    return_content: false
+  loop: "{{ gitlab_protected_branches }}"

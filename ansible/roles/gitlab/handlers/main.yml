@@ -2,3 +2,21 @@
 - name: Reconfigure GitLab
   ansible.builtin.command:
     cmd: gitlab-ctl reconfigure
+
+
+- name: Create Code-Keeper project
+  ansible.builtin.uri:
+    url: "{{ gitlab_api_url }}/projects"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    body_format: form-urlencoded
+    body:
+      name: "code-keeper"
+      path: "code-keeper"
+      visibility: "private"
+      initialize_with_readme: "false"
+    status_code: 201
+    return_content: true
+  when: code_keeper_project.status == 404
+  no_log: true

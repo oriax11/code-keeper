@@ -1,0 +1,53 @@
+# Ansible temporary files & retry files
+*.retry
+*.log
+*.tmp
+
+# Downloaded roles and collections
+# (Uncomment these if you manage dependencies via requirements.yml)
+# roles/external/
+# collections/ansible_collections/
+
+# Ansible Vault key files (CRITICAL FOR SECURITY)
+.vault_pass
+.vault_pass.txt
+vault_password
+*.vault
+
+# Local inventory & secrets
+inventory/hosts.ini
+inventory/*.local
+secrets.yml
+*.secret.yml
+
+# Environment & local configurations
+.env
+.env.local
+.ansible.cfg
+
+# Python runtime & cache files
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+.python-version
+
+# Ansible execution & cache artifacts
+.ansible/
+*.cache
+fact_cache/
+
+# Testing & Molecule artifacts
+.molecule/
+.pytest_cache/
+.tox/
+
+# OS and Editor specific files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

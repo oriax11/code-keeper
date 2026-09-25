@@ -2,21 +2,14 @@
 - name: Reconfigure GitLab
   ansible.builtin.command:
     cmd: gitlab-ctl reconfigure
+  notify: Wait for GitLab readiness
 
-
-- name: Create Code-Keeper project
+- name: Wait for GitLab readiness
   ansible.builtin.uri:
-    url: "{{ gitlab_api_url }}/projects"
-    method: POST
-    headers:
-      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
-    body_format: form-urlencoded
-    body:
-      name: "code-keeper"
-      path: "code-keeper"
-      visibility: "private"
-      initialize_with_readme: "false"
-    status_code: 201
-    return_content: true
-  when: code_keeper_project.status == 404
-  no_log: true
+    url: "{{ gitlab_external_url }}/-/readiness"
+    validate_certs: "{{ gitlab_validate_certs | default(true) }}"
+    status_code: 200
+  register: gitlab_ready
+  until: gitlab_ready.status == 200
+  retries: 60
+  delay: 10

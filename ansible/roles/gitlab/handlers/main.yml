@@ -2,14 +2,4 @@
 - name: Reconfigure GitLab
   ansible.builtin.command:
     cmd: gitlab-ctl reconfigure
-  notify: Wait for GitLab readiness
 
-- name: Wait for GitLab readiness
-  ansible.builtin.uri:
-    url: "{{ gitlab_external_url }}/-/readiness"
-    validate_certs: "{{ gitlab_validate_certs | default(true) }}"
-    status_code: 200
-  register: gitlab_ready
-  until: gitlab_ready.status == 200
-  retries: 60
-  delay: 10

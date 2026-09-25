@@ -91,6 +91,39 @@
     mode: "0600"
   when: not ansible_token_marker.stat.exists
 
+
+- name: Check whether the runner creation API token already exists
+  ansible.builtin.stat:
+    path: /etc/gitlab/.runner_creation_token_created
+  register: runner_creation_token_marker
+
+- name: Create runner creation API token via gitlab-rails runner
+  ansible.builtin.shell: |
+    gitlab-rails runner "
+      user = User.find_by_username('root')
+      token = user.personal_access_tokens.find_by(name: 'runner_creation')
+      unless token && !token.expired?
+        token = user.personal_access_tokens.create(
+          name: 'runner_creation',
+          scopes: ['create_runner'],
+          expires_at: 365.days.from_now
+        )
+        token.set_token('{{ gitlab_runner_creation_token }}')
+        token.save!
+      end
+    "
+  args:
+    executable: /bin/bash
+  when: not runner_creation_token_marker.stat.exists
+  no_log: false
+
+- name: Mark runner creation API token as created
+  ansible.builtin.file:
+    path: /etc/gitlab/.runner_creation_token_created
+    state: touch
+    mode: "0600"
+  when: not runner_creation_token_marker.stat.exists
+
 - name: Verify GitLab API authentication
   ansible.builtin.uri:
     url: "{{ gitlab_api_url }}/user"
@@ -99,7 +132,7 @@
       PRIVATE-TOKEN: "{{ gitlab_api_token }}"
     status_code: 200
     return_content: false
-  no_log: true
+  no_log: false
 
 # -------------------------------------------------------------------
 # Users

@@ -116,12 +116,13 @@
     runner_needs_registration: >-
       {{ gitlab_runner_name not in (gitlab_runner_list.stdout ~ gitlab_runner_list.stderr) }}
 
+
 - name: Register runner with GitLab and locally
   when: runner_needs_registration | bool
   block:
     - name: Get Code-Keeper project
       ansible.builtin.uri:
-        url: "{{ gitlab_api_url }}/projects/root%2Fcode-keeper"
+        url: "{{ gitlab_internal_api_url }}/projects/root%2Fcode-keeper"
         method: GET
         headers:
           PRIVATE-TOKEN: "{{ gitlab_api_token }}"
@@ -136,49 +137,58 @@
 
     - name: Get existing Code-Keeper project runners
       ansible.builtin.uri:
-        url: "{{ gitlab_api_url }}/projects/{{ code_keeper_project_id }}/runners?per_page=100"
+        url: "{{ gitlab_internal_api_url }}/projects/{{ code_keeper_project_id }}/runners?per_page=100"
         method: GET
         headers:
           PRIVATE-TOKEN: "{{ gitlab_api_token }}"
         status_code: 200
         return_content: true
       register: project_runners
-      no_log: true
+      no_log: false
 
-    - name: Find existing Code-Keeper runner
+    # --- FIX: don't collapse to a scalar before checking whether a match
+    # exists. On several ansible-core versions, first|default(none) on an
+    # empty list renders as an empty string rather than a real None, so
+    # `is none` checks downstream silently evaluate wrong. Keep the list
+    # and check its length instead.
+    - name: Find existing Code-Keeper runners matching this description
       ansible.builtin.set_fact:
-        existing_runner: >-
+        matching_runners: >-
           {{
             project_runners.json
             | selectattr('description', 'equalto', gitlab_runner_name)
             | list
-            | first
-            | default(none)
           }}
 
-    # Reuse the existing GitLab-side runner: rotate its token for local registration
+    - name: Set existing runner ID (only when a match was found)
+      ansible.builtin.set_fact:
+        existing_runner_id: "{{ matching_runners[0].id }}"
+      when: matching_runners | length > 0
+
     - name: Reset runner authentication token (existing runner)
       ansible.builtin.uri:
-        url: "{{ gitlab_api_url }}/runners/{{ existing_runner.id }}/reset_authentication_token"
+        url: "{{ gitlab_internal_api_url }}/runners/{{ existing_runner_id }}/reset_authentication_token"
         method: POST
         headers:
           PRIVATE-TOKEN: "{{ gitlab_api_token }}"
-        status_code: 201
+        status_code: 200
         return_content: true
       register: reset_runner_token
       no_log: false
-      when: existing_runner is not none
+      when: matching_runners | length > 0
 
     - name: Use token from reset
       ansible.builtin.set_fact:
         runner_auth_token: "{{ reset_runner_token.json.token }}"
-      no_log: true
-      when: existing_runner is not none
+      no_log: false
+      when: matching_runners | length > 0
+
+    
 
     # Otherwise create it; the creation response already contains the token
     - name: Create Code-Keeper project runner
       ansible.builtin.uri:
-        url: "{{ gitlab_api_url }}/user/runners"
+        url: "{{ gitlab_internal_api_url }}/user/runners"
         method: POST
         headers:
           PRIVATE-TOKEN: "{{ gitlab_runner_creation_token }}"
@@ -193,14 +203,14 @@
         status_code: 201
         return_content: true
       register: created_runner
-      no_log: true
-      when: existing_runner is none
+      no_log: false
+      when: matching_runners | length == 0
 
     - name: Use token from newly created runner
       ansible.builtin.set_fact:
         runner_auth_token: "{{ created_runner.json.token }}"
       no_log: true
-      when: existing_runner is none
+      when: matching_runners | length == 0
 
     - name: Register GitLab Runner locally
       ansible.builtin.command:

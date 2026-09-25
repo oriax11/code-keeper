@@ -1,6 +1,8 @@
 ---
 gitlab_url: "http://gitlab-01"
 
+gitlab_internal_api_url: "{{ gitlab_url }}/api/v4"
+
 gitlab_runner_version: "latest"
 
 gitlab_runner_executor: "docker"

@@ -1,4 +1,4 @@
-gitlab_external_url: "https://6ab660c5d67b817b0bc9d12c-21e357.node-eu-14f6.iximiuz.com"
+gitlab_external_url: "https://6ab7c23e330452d9e0626e45-74396a.node-eu-13e2.iximiuz.com"
 gitlab_api_url: "{{ gitlab_external_url }}/api/v4"
 
 gitlab_project_members:

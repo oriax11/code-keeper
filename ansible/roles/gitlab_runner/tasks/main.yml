@@ -171,7 +171,9 @@
         method: POST
         headers:
           PRIVATE-TOKEN: "{{ gitlab_api_token }}"
-        status_code: 200
+        status_code: 
+          - 200
+          - 201
         return_content: true
       register: reset_runner_token
       no_log: false

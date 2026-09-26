@@ -1,4 +1,7 @@
 ---
+# -------------------------------------------------------------------
+# System Setup & GitLab Package Installation
+# -------------------------------------------------------------------
 - name: Update apt cache
   ansible.builtin.apt:
     update_cache: true
@@ -59,6 +62,9 @@
 - name: Flush handlers so GitLab is reconfigured and ready before continuing
   ansible.builtin.meta: flush_handlers
 
+# -------------------------------------------------------------------
+# Authentication & Initial Tokens Setup
+# -------------------------------------------------------------------
 - name: Check whether the ansible API token already exists
   ansible.builtin.stat:
     path: /etc/gitlab/.ansible_token_created
@@ -91,7 +97,6 @@
     mode: "0600"
   when: not ansible_token_marker.stat.exists
 
-
 - name: Check whether the runner creation API token already exists
   ansible.builtin.stat:
     path: /etc/gitlab/.runner_creation_token_created
@@ -115,7 +120,6 @@
   args:
     executable: /bin/bash
   when: not runner_creation_token_marker.stat.exists
-  no_log: false
 
 - name: Mark runner creation API token as created
   ansible.builtin.file:
@@ -131,12 +135,6 @@
     headers:
       PRIVATE-TOKEN: "{{ gitlab_api_token }}"
     status_code: 200
-    return_content: false
-  no_log: false
-
-# -------------------------------------------------------------------
-# Users
-# -------------------------------------------------------------------
 
 - name: Create GitLab users
   ansible.builtin.uri:
@@ -154,27 +152,39 @@
     status_code:
       - 201
       - 409
-    return_content: false
   loop: "{{ gitlab_users }}"
   no_log: true
 
 # -------------------------------------------------------------------
-# Code-Keeper project
+# Create GitLab Group & Repositories
 # -------------------------------------------------------------------
-
-- name: Check if Code-Keeper project exists
+- name: Create primary GitLab Group
   ansible.builtin.uri:
-    url: "{{ gitlab_api_url }}/projects/root%2Fcode-keeper"
+    url: "{{ gitlab_api_url }}/groups"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    body_format: form-urlencoded
+    body:
+      name: "{{ gitlab_group_name }}"
+      path: "{{ gitlab_group_path }}"
+      visibility: "private"
+    status_code:
+      - 201
+      - 409
+      - 400
+  register: group_creation
+
+- name: Fetch GitLab Group info
+  ansible.builtin.uri:
+    url: "{{ gitlab_api_url }}/groups/{{ gitlab_group_path }}"
     method: GET
     headers:
       PRIVATE-TOKEN: "{{ gitlab_api_token }}"
-    status_code:
-      - 200
-      - 404
-    return_content: true
-  register: code_keeper_project
+    status_code: 200
+  register: gitlab_group
 
-- name: Create Code-Keeper project
+- name: Create repositories inside the Group
   ansible.builtin.uri:
     url: "{{ gitlab_api_url }}/projects"
     method: POST
@@ -182,28 +192,30 @@
       PRIVATE-TOKEN: "{{ gitlab_api_token }}"
     body_format: form-urlencoded
     body:
-      name: "code-keeper"
-      path: "code-keeper"
+      name: "{{ item.name }}"
+      path: "{{ item.path }}"
+      namespace_id: "{{ gitlab_group.json.id }}"
       visibility: "private"
       initialize_with_readme: "false"
-    status_code: 201
-    return_content: true
-  register: created_code_keeper
-  when: code_keeper_project.status == 404
-  no_log: true
+    status_code:
+      - 201
+      - 409
+      - 400
+  loop: "{{ gitlab_repositories }}"
 
-- name: Set Code-Keeper project ID
-  ansible.builtin.set_fact:
-    code_keeper_project_id: >-
-      {{
-        code_keeper_project.json.id
-        if code_keeper_project.status == 200
-        else created_code_keeper.json.id
-      }}
-
-- name: Configure Code-Keeper project
+- name: Fetch details of created projects
   ansible.builtin.uri:
-    url: "{{ gitlab_api_url }}/projects/{{ code_keeper_project_id }}"
+    url: "{{ gitlab_api_url }}/projects/{{ gitlab_group_path }}%2F{{ item.path }}"
+    method: GET
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    status_code: 200
+  loop: "{{ gitlab_repositories }}"
+  register: gitlab_projects_info
+
+- name: Configure project settings
+  ansible.builtin.uri:
+    url: "{{ gitlab_api_url }}/projects/{{ item.json.id }}"
     method: PUT
     headers:
       PRIVATE-TOKEN: "{{ gitlab_api_token }}"
@@ -217,26 +229,22 @@
       only_allow_merge_if_all_discussions_are_resolved: "true"
       remove_source_branch_after_merge: "true"
     status_code: 200
+  loop: "{{ gitlab_projects_info.results }}"
 
-# -------------------------------------------------------------------
-# Project members
-# -------------------------------------------------------------------
-
-- name: Get GitLab users
+- name: Get user IDs for project members
   ansible.builtin.uri:
     url: "{{ gitlab_api_url }}/users?username={{ item.username }}"
     method: GET
     headers:
       PRIVATE-TOKEN: "{{ gitlab_api_token }}"
     status_code: 200
-    return_content: true
   loop: "{{ gitlab_project_members }}"
   register: gitlab_member_users
   no_log: true
 
-- name: Add users to Code-Keeper
+- name: Add members to the Group (grants access across all repos)
   ansible.builtin.uri:
-    url: "{{ gitlab_api_url }}/projects/{{ code_keeper_project_id }}/members"
+    url: "{{ gitlab_api_url }}/groups/{{ gitlab_group.json.id }}/members"
     method: POST
     headers:
       PRIVATE-TOKEN: "{{ gitlab_api_token }}"
@@ -247,24 +255,5 @@
     status_code:
       - 201
       - 409
-    return_content: false
   loop: "{{ gitlab_member_users.results }}"
   no_log: true
-
-- name: Protect Code-Keeper main branch
-  ansible.builtin.uri:
-    url: "{{ gitlab_api_url }}/projects/{{ code_keeper_project_id }}/protected_branches"
-    method: POST
-    headers:
-      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
-    body_format: form-urlencoded
-    body:
-      name: "{{ item.name }}"
-      push_access_level: "{{ item.push_access_level }}"
-      merge_access_level: "{{ item.merge_access_level }}"
-      allow_force_push: "{{ item.allow_force_push | lower }}"
-    status_code:
-      - 201
-      - 409
-    return_content: false
-  loop: "{{ gitlab_protected_branches }}"

@@ -1,6 +1,21 @@
 gitlab_external_url: "https://6ab7d17a449b4fd17b7edc85-57831c.node-eu-10a1.iximiuz.com"
 gitlab_api_url: "{{ gitlab_external_url }}/api/v4"
 
+
+
+gitlab_repositories:
+  - name: "inventory-app"
+    path: "inventory-app"
+  - name: "billing-app"
+    path: "billing-app"
+  - name: "api-gateway"
+    path: "api-gateway"
+  - name: "infrastructure-configuration"
+    path: "infrastructure-configuration"
+
+gitlab_group_name: "Code Keeper"
+gitlab_group_path: "core-keeper"
+
 gitlab_project_members:
   - username: "yaouzddou"
     access_level: 40

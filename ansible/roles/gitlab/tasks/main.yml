@@ -1,4 +1,7 @@
 ---
+# -------------------------------------------------------------------
+# System Setup & GitLab Package Installation
+# -------------------------------------------------------------------
 - name: Update apt cache
   ansible.builtin.apt:
     update_cache: true
@@ -25,11 +28,20 @@
     signed_by: https://packages.gitlab.com/gitlab/gitlab-ee/gpgkey
     state: present
 
+- name: Set initial root password before first reconfigure
+  ansible.builtin.lineinfile:
+    path: /etc/gitlab/gitlab.rb
+    create: true
+    line: "gitlab_rails['initial_root_password'] = '{{ gitlab_root_password }}'"
+    insertafter: EOF
+  no_log: true
+
 - name: Install GitLab
   ansible.builtin.apt:
     name: gitlab-ee
     state: present
     update_cache: true
+  notify: Reconfigure GitLab
 
 - name: Configure GitLab external URL and reverse proxy
   ansible.builtin.blockinfile:
@@ -46,3 +58,202 @@
         "X-Forwarded-Ssl" => "on"
       }
   notify: Reconfigure GitLab
+
+- name: Flush handlers so GitLab is reconfigured and ready before continuing
+  ansible.builtin.meta: flush_handlers
+
+# -------------------------------------------------------------------
+# Authentication & Initial Tokens Setup
+# -------------------------------------------------------------------
+- name: Check whether the ansible API token already exists
+  ansible.builtin.stat:
+    path: /etc/gitlab/.ansible_token_created
+  register: ansible_token_marker
+
+- name: Create root API token via gitlab-rails runner
+  ansible.builtin.shell: |
+    gitlab-rails runner "
+      user = User.find_by_username('root')
+      token = user.personal_access_tokens.find_by(name: 'ansible')
+      unless token && !token.expired?
+        token = user.personal_access_tokens.create(
+          name: 'ansible',
+          scopes: ['api', 'admin_mode'],
+          expires_at: 365.days.from_now
+        )
+        token.set_token('{{ gitlab_api_token }}')
+        token.save!
+      end
+    "
+  args:
+    executable: /bin/bash
+  when: not ansible_token_marker.stat.exists
+  no_log: true
+
+- name: Mark ansible API token as created
+  ansible.builtin.file:
+    path: /etc/gitlab/.ansible_token_created
+    state: touch
+    mode: "0600"
+  when: not ansible_token_marker.stat.exists
+
+- name: Check whether the runner creation API token already exists
+  ansible.builtin.stat:
+    path: /etc/gitlab/.runner_creation_token_created
+  register: runner_creation_token_marker
+
+- name: Create runner creation API token via gitlab-rails runner
+  ansible.builtin.shell: |
+    gitlab-rails runner "
+      user = User.find_by_username('root')
+      token = user.personal_access_tokens.find_by(name: 'runner_creation')
+      unless token && !token.expired?
+        token = user.personal_access_tokens.create(
+          name: 'runner_creation',
+          scopes: ['create_runner'],
+          expires_at: 365.days.from_now
+        )
+        token.set_token('{{ gitlab_runner_creation_token }}')
+        token.save!
+      end
+    "
+  args:
+    executable: /bin/bash
+  when: not runner_creation_token_marker.stat.exists
+
+- name: Mark runner creation API token as created
+  ansible.builtin.file:
+    path: /etc/gitlab/.runner_creation_token_created
+    state: touch
+    mode: "0600"
+  when: not runner_creation_token_marker.stat.exists
+
+- name: Verify GitLab API authentication
+  ansible.builtin.uri:
+    url: "{{ gitlab_api_url }}/user"
+    method: GET
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    status_code: 200
+
+- name: Create GitLab users
+  ansible.builtin.uri:
+    url: "{{ gitlab_api_url }}/users"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    body_format: form-urlencoded
+    body:
+      email: "{{ item.email }}"
+      username: "{{ item.username }}"
+      name: "{{ item.name }}"
+      password: "{{ gitlab_user_passwords[item.username] }}"
+      skip_confirmation: "true"
+    status_code:
+      - 201
+      - 409
+  loop: "{{ gitlab_users }}"
+  no_log: true
+
+# -------------------------------------------------------------------
+# Create GitLab Group & Repositories
+# -------------------------------------------------------------------
+- name: Create primary GitLab Group
+  ansible.builtin.uri:
+    url: "{{ gitlab_api_url }}/groups"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    body_format: form-urlencoded
+    body:
+      name: "{{ gitlab_group_name }}"
+      path: "{{ gitlab_group_path }}"
+      visibility: "private"
+    status_code:
+      - 201
+      - 409
+      - 400
+  register: group_creation
+
+- name: Fetch GitLab Group info
+  ansible.builtin.uri:
+    url: "{{ gitlab_api_url }}/groups/{{ gitlab_group_path }}"
+    method: GET
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    status_code: 200
+  register: gitlab_group
+
+- name: Create repositories inside the Group
+  ansible.builtin.uri:
+    url: "{{ gitlab_api_url }}/projects"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    body_format: form-urlencoded
+    body:
+      name: "{{ item.name }}"
+      path: "{{ item.path }}"
+      namespace_id: "{{ gitlab_group.json.id }}"
+      visibility: "private"
+      initialize_with_readme: "false"
+    status_code:
+      - 201
+      - 409
+      - 400
+  loop: "{{ gitlab_repositories }}"
+
+- name: Fetch details of created projects
+  ansible.builtin.uri:
+    url: "{{ gitlab_api_url }}/projects/{{ gitlab_group_path }}%2F{{ item.path }}"
+    method: GET
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    status_code: 200
+  loop: "{{ gitlab_repositories }}"
+  register: gitlab_projects_info
+
+- name: Configure project settings
+  ansible.builtin.uri:
+    url: "{{ gitlab_api_url }}/projects/{{ item.json.id }}"
+    method: PUT
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    body_format: form-urlencoded
+    body:
+      visibility: "private"
+      merge_requests_enabled: "true"
+      issues_enabled: "true"
+      wiki_enabled: "true"
+      only_allow_merge_if_pipeline_succeeds: "true"
+      only_allow_merge_if_all_discussions_are_resolved: "true"
+      remove_source_branch_after_merge: "true"
+    status_code: 200
+  loop: "{{ gitlab_projects_info.results }}"
+
+- name: Get user IDs for project members
+  ansible.builtin.uri:
+    url: "{{ gitlab_api_url }}/users?username={{ item.username }}"
+    method: GET
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    status_code: 200
+  loop: "{{ gitlab_project_members }}"
+  register: gitlab_member_users
+  no_log: true
+
+- name: Add members to the Group (grants access across all repos)
+  ansible.builtin.uri:
+    url: "{{ gitlab_api_url }}/groups/{{ gitlab_group.json.id }}/members"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    body_format: form-urlencoded
+    body:
+      user_id: "{{ item.json[0].id }}"
+      access_level: "{{ item.item.access_level }}"
+    status_code:
+      - 201
+      - 409
+  loop: "{{ gitlab_member_users.results }}"
+  no_log: true

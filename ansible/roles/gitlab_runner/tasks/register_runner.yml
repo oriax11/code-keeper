@@ -1,0 +1,83 @@
+---
+- name: Process runner registration for repository
+  vars:
+    scoped_runner_name: "{{ gitlab_runner_name }}-{{ current_repo.path }}"
+  when: scoped_runner_name not in (gitlab_runner_list.stdout ~ gitlab_runner_list.stderr)
+  block:
+    - name: "Get project information for {{ current_repo.name }}"
+      ansible.builtin.uri:
+        url: "{{ gitlab_internal_api_url }}/projects/{{ gitlab_group_path }}%2F{{ current_repo.path }}"
+        method: GET
+        headers:
+          PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+        status_code: 200
+      register: project_info
+
+    - name: "Get existing runners for {{ current_repo.name }}"
+      ansible.builtin.uri:
+        url: "{{ gitlab_internal_api_url }}/projects/{{ project_info.json.id }}/runners?per_page=100"
+        method: GET
+        headers:
+          PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+        status_code: 200
+      register: project_runners
+
+    - name: "Find matching runner for {{ current_repo.name }}"
+      ansible.builtin.set_fact:
+        matching_runners: >-
+          {{
+            project_runners.json
+            | selectattr('description', 'equalto', scoped_runner_name)
+            | list
+          }}
+
+    - name: Reset token if runner exists in GitLab
+      ansible.builtin.uri:
+        url: "{{ gitlab_internal_api_url }}/runners/{{ matching_runners[0].id }}/reset_authentication_token"
+        method: POST
+        headers:
+          PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+        status_code:
+          - 200
+          - 201
+      register: reset_runner_token
+      when: matching_runners | length > 0
+
+    - name: Create new runner in GitLab
+      ansible.builtin.uri:
+        url: "{{ gitlab_internal_api_url }}/user/runners"
+        method: POST
+        headers:
+          PRIVATE-TOKEN: "{{ gitlab_runner_creation_token }}"
+        body_format: form-urlencoded
+        body:
+          runner_type: "project_type"
+          project_id: "{{ project_info.json.id }}"
+          description: "{{ scoped_runner_name }}"
+          tag_list: "{{ gitlab_runner_tags | join(',') }}"
+          run_untagged: false
+          locked: true
+        status_code: 201
+      register: created_runner
+      when: matching_runners | length == 0
+
+    - name: Set runner auth token variable
+      ansible.builtin.set_fact:
+        runner_auth_token: >-
+          {{
+            reset_runner_token.json.token
+            if matching_runners | length > 0
+            else created_runner.json.token
+          }}
+
+    - name: Register runner locally via gitlab-runner CLI
+      ansible.builtin.command:
+        cmd: >
+          gitlab-runner register
+          --non-interactive
+          --url "{{ gitlab_url }}"
+          --token "{{ runner_auth_token }}"
+          --executor "{{ gitlab_runner_executor }}"
+          --docker-image "{{ gitlab_runner_docker_image }}"
+          --description "{{ scoped_runner_name }}"
+      notify: Restart GitLab Runner

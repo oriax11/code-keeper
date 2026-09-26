@@ -1,7 +1,12 @@
 ---
-- name: Configure GitLab server
+- name: Deploy GitLab
   hosts: gitlab
   become: true
-
   roles:
     - gitlab
+
+- name: Deploy GitLab Runner
+  hosts: gitlab_runner
+  become: true
+  roles:
+    - gitlab_runner

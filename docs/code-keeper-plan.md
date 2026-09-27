@@ -172,8 +172,8 @@ Host: iximiuz Labs, 10 GB RAM / 800 GB disk, persistent.
 | 2 | Split repositories — 4 repos with source, Dockerfiles, tests, CI/CD files, READMEs | ✅ Done |
 | 2.5 | **Repo reconciliation** — match GitLab reality (group `core-keeper`, repo names), rebuild infra as standalone repo, move Ansible into it, 4 submodules in umbrella, restore umbrella origin, fix CD service names, fix ansible `external_url` | ✅ Done |
 | 3 | Tests — pytest suites per app | ✅ Done (in Phase 2) — 18 tests passing |
-| 4 | Infrastructure pipeline (`.gitlab-ci.yml`: Init/Validate/Plan/Apply Staging/Approval/Apply Prod) | ⬜ Pending |
-| 5 | CI pipeline per app — run Build/Test/Scan/Containerization **on GitLab** | ⬜ Pending (files exist) |
+| 4 | Infrastructure pipeline (`.gitlab-ci.yml`: Init/Validate/Plan/Apply Staging/Approval/Apply Prod) | ✅ File done + locally validated (commit `5cf53d9`) — first live run pending push + CI vars |
+| 5 | CI pipeline per app — run Build/Test/Scan/Containerization **on GitLab** | ⬜ Pending (files exist; runner-tag defect fixed in Phase 4: all jobs now tagged `code-keeper,docker`) |
 | 6 | CD pipeline per app — Deploy Staging/Approval/Deploy Prod **on GitLab** | ⬜ Pending (files exist) |
 | 7 | Ansible: GitLab + runners — GitLab is live; re-verify playbook matches current instance, collect `--list-tasks` evidence | 🔶 Partially done — verify |
 | 8 | Security hardening — AWS OIDC role + masked CI vars, least-privilege IAM, dependency updates | ⬜ Pending |

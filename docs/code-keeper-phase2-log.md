@@ -105,30 +105,25 @@ stages:
 - **Action:** Updated `code-keeper-infra/.gitignore` to exclude `.terraform/`, `*.tfstate`, `*.tfplan`, `*.tfvars` (except `.example`)
 - **Explanation:** Each repo is now a proper Git repository ready for GitLab push when the instance is deployed (Phase 7).
 
-### Step 2.11: Move Ansible to infra repo & Update Repo Names
-- **Action:** Copied `code-keeper/ansible/` → `code-keeper-infra/ansible/`
-- **Action:** Updated `code-keeper-infra/ansible/group_vars/all/gitlab.yml`:
-  - Repo names: `api-gateway-app` (was `api-gateway`), `code-keeper-infra` (was `infrastructure-configuration`)
-  - Group path: `code-keeper` (was `core-keeper`)
-- **Explanation:** Aligns Ansible with the actual 4 repo names and group structure.
+### Step 2.11: Move Ansible to infra repo & Align Repo Names
+- **Action:** Copied `code-keeper/ansible/` → infra repo (as `code-keeper-infra/` at the time).
+- **Action:** Edited `group_vars/all/gitlab.yml` repo names/group — **as first done this diverged from the live GitLab group path** (`core-keeper`); corrected in Phase 2.5.
+- **Explanation:** Goal: align Ansible with the 4 repos. Final canonical result lives in `infrastructure-configuration/ansible/` (see Phase 2.5).
 
 ### Step 2.12: Configure Git Remotes (iximiuz GitLab)
-- **Action:** Added GitLab remote `origin` to all 4 repos:
-  - `inventory-app` → `https://6ab7e5f2330452d9e06766c5-36e164.node-eu-d241.iximiuz.com/code-keeper/inventory-app.git`
-  - `billing-app` → `https://6ab7e5f2330452d9e06766c5-36e164.node-eu-d241.iximiuz.com/code-keeper/billing-app.git`
-  - `api-gateway-app` → `https://6ab7e5f2330452d9e06766c5-36e164.node-eu-d241.iximiuz.com/code-keeper/api-gateway-app.git`
-  - `code-keeper-infra` → `https://6ab7e5f2330452d9e06766c5-36e164.node-eu-d241.iximiuz.com/code-keeper/code-keeper-infra.git`
+- **Action:** Added `origin` remotes to the app repos. First attempt used HTTPS URLs under a `code-keeper` group — **wrong scheme and group**. Final remotes (corrected in Phase 2.5) are SSH:
+  - `inventory-app` → `git@6ab7e5f2330452d9e06766c5-36e164.node-eu-d241.iximiuz.com:core-keeper/inventory-app.git`
+  - `billing-app` → `git@6ab7e5f2330452d9e06766c5-36e164.node-eu-d241.iximiuz.com:core-keeper/billing-app.git`
+  - `api-gateway` → `git@6ab7e5f2330452d9e06766c5-36e164.node-eu-d241.iximiuz.com:core-keeper/api-gateway.git`
+  - `infrastructure-configuration` → `git@6ab7e5f2330452d9e06766c5-36e164.node-eu-d241.iximiuz.com:core-keeper/infrastructure-configuration.git`
 
 ### Step 2.13: Add Submodules to Umbrella Repo
-- **Action:** Added 3 app submodules to `code-keeper/` with GitLab URLs:
-  - `.gitmodules` entries for `inventory-app`, `billing-app`, `api-gateway-app`
-  - Submodules cloned locally from source directories for development
-- **Note:** `code-keeper-infra` is already a subdirectory of `code-keeper/`, not a submodule.
-- **Explanation:** Umbrella repo tracks all components; submodules will pull from GitLab after Phase 7 deploys the instance.
+- **Action:** Added submodules to `code-keeper/`. The first attempt (HTTPS URLs, path mismatch `api-gateway-app` vs `api-gateway`, no gitlinks) was broken; **rebuilt correctly in Phase 2.5** — 4 submodules with SSH GitLab URLs and registered gitlinks.
+- **Explanation:** Umbrella repo tracks all components as submodules under the `core-keeper` group.
 
 ---
 
-## 3. Repository Structures (Final)
+## 3. Repository Structures (Final — after Phase 2.5 reconciliation)
 
 ### inventory-app/
 ```
@@ -148,8 +143,8 @@ inventory-app/
     ├── conftest.py
     └── test_movies.py
 ```
-Remote: `https://6ab7e5f2330452d9e06766c5-36e164.node-eu-d241.iximiuz.com/code-keeper/inventory-app.git`
-Submodule in `code-keeper/inventory-app/`
+Remote: `git@…iximiuz.com:core-keeper/inventory-app.git`
+Working copy: `/home/aesslima/inventory-app/` · Submodule: `code-keeper/inventory-app/`
 
 ### billing-app/
 ```
@@ -168,12 +163,12 @@ billing-app/
     ├── conftest.py
     └── test_orders.py
 ```
-Remote: `https://6ab7e5f2330452d9e06766c5-36e164.node-eu-d241.iximiuz.com/code-keeper/billing-app.git`
-Submodule in `code-keeper/billing-app/`
+Remote: `git@…iximiuz.com:core-keeper/billing-app.git`
+Working copy: `/home/aesslima/billing-app/` · Submodule: `code-keeper/billing-app/`
 
-### api-gateway-app/
+### api-gateway/
 ```
-api-gateway-app/
+api-gateway/
 ├── .gitignore
 ├── .gitlab-ci.yml
 ├── Dockerfile
@@ -190,15 +185,15 @@ api-gateway-app/
     ├── conftest.py
     └── test_gateway.py
 ```
-Remote: `https://6ab7e5f2330452d9e06766c5-36e164.node-eu-d241.iximiuz.com/code-keeper/api-gateway-app.git`
-Submodule in `code-keeper/api-gateway-app/`
+Remote: `git@…iximiuz.com:core-keeper/api-gateway.git`
+Working copy: `/home/aesslima/api-gateway/` · Submodule: `code-keeper/api-gateway/`
 
-### code-keeper-infra/ (from Phase 1)
+### infrastructure-configuration/
 ```
-code-keeper-infra/
+infrastructure-configuration/
 ├── .gitignore
 ├── README.md
-├── ansible/          # ← MOVED HERE (GitLab + runner deployment)
+├── ansible/                # ← GitLab + runner deployment (decision #7)
 │   ├── gitlab.yml
 │   ├── inventory/hosts.yml
 │   ├── group_vars/all/gitlab.yml
@@ -210,9 +205,9 @@ code-keeper-infra/
 │   └── rabbit-queue/
 ├── scripts/
 └── terraform/
-    ├── backend.tf
+    ├── backend.tf          # GitLab HTTP backend
     ├── provider.tf
-    ├── variables.tf
+    ├── variables.tf        # + environment
     ├── main.tf
     ├── budget.tf
     ├── outputs.tf
@@ -221,31 +216,135 @@ code-keeper-infra/
     │   └── production.tfvars.example
     └── modules/{vpc,security,efs,alb,ecs}/
 ```
-Remote: `https://6ab7e5f2330452d9e06766c5-36e164.node-eu-d241.iximiuz.com/code-keeper/code-keeper-infra.git`
-Directory at `code-keeper/code-keeper-infra/`
+Remote: `git@…iximiuz.com:core-keeper/infrastructure-configuration.git`
+Working copy: `/home/aesslima/infrastructure-configuration/` · Submodule: `code-keeper/infrastructure-configuration/`
 
 ---
 
-## 4. Exit Criteria Verification
+## 4. Exit Criteria Verification (as corrected by Phase 2.5)
 
 | Check | Requirement | Result | Status |
 |-------|-------------|--------|--------|
-| 1 | Four independent repos exist | `code-keeper-infra`, `inventory-app`, `billing-app`, `api-gateway-app` | **PASSED** |
+| 1 | Four independent repos exist | `infrastructure-configuration`, `inventory-app`, `billing-app`, `api-gateway` | **PASSED** |
 | 2 | Each app in single repo | Source, Dockerfile, tests, CI/CD, README all present | **PASSED** |
 | 3 | Tests exist and pass | 9 + 3 + 6 = 18 tests, all passing locally | **PASSED** |
-| 4 | CI/CD pipeline per repo | 7-stage `.gitlab-ci.yml` in each app repo | **PASSED** |
+| 4 | CI/CD pipeline per repo | 7-stage `.gitlab-ci.yml` in each app repo (service names corrected in 2.5.3) | **PASSED** |
 | 5 | Dockerfile per app | Copied from cloud-design, at repo root | **PASSED** |
 | 6 | Documentation per repo | README.md with architecture, endpoints, env vars, local dev, CI/CD | **PASSED** |
 | 7 | No hardcoded references to old paths | All imports use local package structure | **PASSED** |
-| 8 | Git repos initialized | 4 repos, initial commits on `main` branch | **PASSED** |
-| 9 | Ansible in infra repo | `code-keeper-infra/ansible/` with updated repo names | **PASSED** |
-| 10 | GitLab remotes configured | All 4 repos point to iximiuz GitLab URLs | **PASSED** |
-| 11 | Submodules in umbrella | 3 app submodules in `code-keeper/` | **PASSED** |
+| 8 | Git repos initialized | 4 repos, commits on `main` branch | **PASSED** |
+| 9 | Ansible in infra repo | `infrastructure-configuration/ansible/`, names/URL match live GitLab | **PASSED** (Phase 2.5) |
+| 10 | GitLab remotes configured | 4 repos → `git@…:core-keeper/<repo>.git` SSH URLs | **PASSED** (Phase 2.5) |
+| 11 | Submodules in umbrella | 4 submodules (3 apps + infra) with SSH URLs, gitlinks registered | **PASSED** (Phase 2.5) |
+| 12 | Umbrella origin restored | `learn.zone01oujda.ma/git/yaouzddou/code-keeper.git` | **PASSED** (Phase 2.5) |
+| 13 | Push to GitLab | Blocked — local SSH key not registered (plan open item #1) | **PENDING USER** |
 
 ---
 
-## 5. Phase 2 Sign-Off
+## 5. Phase 2.5 — Repo Reconciliation (post-review fix)
 
-Phase 2 has been completed successfully. All four repositories are structured, tested, and pipeline-ready.
+**Log Date:** 2026-09-27
+**Trigger:** Plan review found that Phase 2's exit criteria were recorded as
+passing while the working tree and GitLab reality did not match.
 
-**Next:** Phase 3 — Add integration tests (optional) → Phase 4 — Infrastructure Pipeline in `code-keeper-infra/.gitlab-ci.yml`.
+### Mistakes found (Phase 2 as first executed)
+
+| # | Mistake | Impact |
+|---|---------|--------|
+| 1 | Repo names diverged from the **already-created GitLab projects** (group `core-keeper`, projects `infrastructure-configuration`, `api-gateway`) | Remotes and `.gitmodules` pointed at non-existent paths (`code-keeper` group, `api-gateway-app`, HTTPS scheme) |
+| 2 | Umbrella `origin` clobbered — pointed at `…/code-keeper/code-keeper-infra.git` instead of the `learn.zone01oujda.ma` submission remote | Would have pushed the umbrella to the wrong repo |
+| 3 | `code-keeper-infra/` working tree destroyed during submodule fumbling; two broken replacements created (` infrastructure-configuration` with a leading space, and `infrastructure-configuration` containing the **old pre-refactor** Terraform) | Risk of losing the Phase 1 refactor; wrong Terraform could have been committed |
+| 4 | `.gitmodules` declared path `api-gateway-app` while the directory was `api-gateway`; submodules never registered as gitlinks (`git submodule status` empty) | Umbrella could not clone its own submodules |
+| 5 | CD pipelines hardcoded wrong ECS service names (`staging-inventory-app-service` vs actual `staging-inventory-service`, same for billing + api-gateway) | **All three CD deploys would fail** with *service not found* |
+| 6 | Ansible `external_url` still pointed at the old host `…node-eu-10a1…` while GitLab now lives at `…node-eu-d241…` | Re-running the playbook would misconfigure GitLab |
+| 7 | Duplicate repos (sibling dirs **and** local clones inside the umbrella) with no declared source of truth | Ambiguity about where commits belong |
+
+### Remediation actions
+
+#### Step 2.5.1: Rebuild the infrastructure repo (canonical)
+- **Action:** Extracted the Phase 1 refactored tree from umbrella git history
+  (`git archive 893fda6` — verified identical to the surviving copy, 46 files)
+  into `/home/aesslima/infrastructure-configuration/`.
+- **Action:** Moved `code-keeper/ansible/` →
+  `infrastructure-configuration/ansible/` (plan decision #7).
+- **Action:** `git init --initial-branch=main`, initial commit `a8fc881`
+  (57 files: terraform + docker + scripts + ansible + README + .gitignore).
+- **Action:** Remote set to
+  `git@6ab7e5f2…iximiuz.com:core-keeper/infrastructure-configuration.git`.
+- **Explanation:** The old `code-keeper-infra` in-tree copy was removed from
+  the umbrella index (still in history); content now lives once, as the
+  standalone repo GitLab already expects.
+
+#### Step 2.5.2: Match local repo names to GitLab
+- **Action:** Renamed `/home/aesslima/api-gateway-app` →
+  `/home/aesslima/api-gateway` (GitLab project is `api-gateway`).
+- **Action:** Confirmed `inventory-app`, `billing-app` remotes →
+  `core-keeper/*` SSH URLs (set earlier the same day).
+
+#### Step 2.5.3: Fix CD service names in the 3 app pipelines
+- **Action:** Corrected `.gitlab-ci.yml` variables to the actual Terraform
+  resource names:
+
+| Repo | Before (wrong) | After (matches Terraform) |
+|---|---|---|
+| inventory-app | `staging-inventory-app-service` | `staging-inventory-service` |
+| billing-app | `staging-billing-app-service` | `staging-billing-service` |
+| api-gateway | `staging-api-gateway-app-service` | `staging-api-gateway-service` |
+
+- Cluster names (`staging-cluster` / `production-cluster`) verified correct
+  against `ecs_cluster.tf` (`${var.environment}-cluster`).
+- **Commits:** `9948d66`, `fe16f90`, `544872f` (one per app repo).
+
+#### Step 2.5.4: Rebuild umbrella submodules
+- **Action:** Restored umbrella `origin` →
+  `https://learn.zone01oujda.ma/git/yaouzddou/code-keeper.git` (kept `github`
+  remote `oriax11/code-keeper`).
+- **Action:** Deleted broken state — stale local clones, the space-named
+  directory, the old-Terraform directory, tracked `code-keeper-infra/` files
+  (removed from index), old `.gitmodules`.
+- **Action:** Registered **4 proper submodules** (gitlinks):
+  `inventory-app`, `billing-app`, `api-gateway`,
+  `infrastructure-configuration` — all cloned from the sibling canonical
+  repos at their current HEADs.
+- **Action:** Set `.gitmodules` URLs and each submodule clone's `origin` to
+  the **SSH GitLab URLs** (`git@…:core-keeper/<repo>.git`).
+- **Commit (umbrella):** `fb74eee`.
+
+#### Step 2.5.5: Fix Ansible to match the live instance
+- **Action:** `infrastructure-configuration/ansible/group_vars/all/gitlab.yml`
+  `gitlab_external_url` → `https://6ab7e5f2330452d9e06766c5-36e164.node-eu-d241.iximiuz.com`.
+- **Verified correct already (no change):** group path `core-keeper`,
+  repository list (`inventory-app`, `billing-app`, `api-gateway`,
+  `infrastructure-configuration`), protected branch `main`.
+
+#### Step 2.5.6: Update plan document
+- **Action:** Rewrote `docs/code-keeper-plan.md` — status header, decisions
+  #9–#12 (group name, Trivy policy, protected branch, umbrella remotes),
+  topology matching GitLab reality, phase table with statuses, open items
+  (SSH key, dependency updates, OIDC design, Phase 7 verification).
+
+### Phase 2.5 exit criteria
+
+| Check | Result | Status |
+|---|---|---|
+| Umbrella origin = submission remote | `learn.zone01oujda.ma/git/yaouzddou/code-keeper.git` | **PASSED** |
+| 4 submodules with GitLab SSH URLs, gitlinks registered | `git submodule status` shows 4 at correct SHAs | **PASSED** |
+| Infra standalone repo restored + ansible inside | `infrastructure-configuration` @ `a8fc881`, 57 files | **PASSED** |
+| Local names match GitLab projects | `inventory-app`, `billing-app`, `api-gateway`, `infrastructure-configuration` | **PASSED** |
+| CD service names match Terraform | 3 CI files fixed + committed | **PASSED** |
+| Ansible `external_url` = live host | updated; group/repos/branch verified | **PASSED** |
+| Push to GitLab | **BLOCKED — SSH key not registered** (see plan open item #1) | **PENDING USER** |
+
+---
+
+## 6. Phase 2 Sign-Off
+
+Phase 2 + 2.5 complete: four repositories structured, tested, pipeline-ready,
+and reconciled with the live GitLab instance (`core-keeper` group).
+
+**Remaining before push:** add the local public key to GitLab, then
+`git push -u origin main` in each sibling repo + the umbrella.
+
+**Next:** Phase 4 — Infrastructure Pipeline in
+`infrastructure-configuration/.gitlab-ci.yml` (Phase 3 already satisfied by
+Phase 2 test suites).

@@ -1,0 +1,12 @@
+[submodule "inventory-app"]
+	path = inventory-app
+	url = https://learn.zone01oujda.ma/git/yaouzddou/inventory-app
+[submodule "billing-app"]
+	path = billing-app
+	url = https://learn.zone01oujda.ma/git/yaouzddou/billing-app
+[submodule "api-gateway-app"]
+	path = api-gateway-app
+	url = https://learn.zone01oujda.ma/git/yaouzddou/api-gateway-app
+[submodule "code-keeper-infra"]
+	path = code-keeper-infra
+	url = https://learn.zone01oujda.ma/git/yaouzddou/code-keeper-infra

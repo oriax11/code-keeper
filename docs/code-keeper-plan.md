@@ -175,7 +175,7 @@ Host: iximiuz Labs, 10 GB RAM / 800 GB disk, persistent.
 | 4 | Infrastructure pipeline (`.gitlab-ci.yml`: Init/Validate/Plan/Apply Staging/Approval/Apply Prod) | ✅ File done + locally validated (commit `5cf53d9`) — first live run pending push + CI vars |
 | 5 | CI pipeline per app — run Build/Test/Scan/Containerization **on GitLab** | ⬜ Pending (files exist; runner-tag defect fixed in Phase 4: all jobs now tagged `code-keeper,docker`) |
 | 6 | CD pipeline per app — Deploy Staging/Approval/Deploy Prod **on GitLab** | ⬜ Pending (files exist) |
-| 7 | Ansible: GitLab + runners — GitLab is live; re-verify playbook matches current instance, collect `--list-tasks` evidence | 🔶 Partially done — verify |
+| 7 | Ansible: GitLab + runners — GitLab live since Phase 7 deployment by oriax11; **verification pass done** (syntax-check ✓, `--list-tasks` evidence ✓, config matches live instance, protected-branch gap found & fixed) — live re-run pending | 🔶 Verified locally — re-run pending |
 | 8 | Security hardening — AWS OIDC role + masked CI vars, least-privilege IAM, dependency updates | ⬜ Pending |
 | 9 | Documentation & audit prep — umbrella README, role-play prep, evidence collection | ⬜ Pending |
 

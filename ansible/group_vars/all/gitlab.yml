@@ -1,4 +1,4 @@
-gitlab_external_url: "https://6ab7d17a449b4fd17b7edc85-57831c.node-eu-10a1.iximiuz.com"
+gitlab_external_url: "https://6ab7e5f2330452d9e06766c5-371223.node-eu-d241.iximiuz.com"
 gitlab_api_url: "{{ gitlab_external_url }}/api/v4"
 
 
@@ -14,7 +14,7 @@ gitlab_repositories:
     path: "infrastructure-configuration"
 
 gitlab_group_name: "Code Keeper"
-gitlab_group_path: "core-keeper"
+gitlab_group_path: "code-keeper"
 
 gitlab_project_members:
   - username: "yaouzddou"

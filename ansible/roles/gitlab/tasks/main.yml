@@ -128,6 +128,17 @@
     mode: "0600"
   when: not runner_creation_token_marker.stat.exists
 
+- name :  Wait for GitLab to be ready
+  ansible.builtin.uri:
+    url: "{{ gitlab_external_url }}/users/sign_in"
+    method: GET
+    status_code: 200
+    timeout: 30
+  register: gitlab_status
+  until: gitlab_status.status == 200
+  retries: 10
+  delay: 15
+
 - name: Verify GitLab API authentication
   ansible.builtin.uri:
     url: "{{ gitlab_api_url }}/user"
@@ -135,7 +146,6 @@
     headers:
       PRIVATE-TOKEN: "{{ gitlab_api_token }}"
     status_code: 200
-
 - name: Create GitLab users
   ansible.builtin.uri:
     url: "{{ gitlab_api_url }}/users"

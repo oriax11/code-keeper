@@ -1,12 +1,12 @@
 [submodule "inventory-app"]
 	path = inventory-app
-	url = https://6ab7e5f2330452d9e06766c5-371223.node-eu-d241.iximiuz.com/code-keeper/inventory-app.git
+	url = https://github.com/0xlislim/inventory-app.git
 [submodule "billing-app"]
 	path = billing-app
-	url = https://6ab7e5f2330452d9e06766c5-371223.node-eu-d241.iximiuz.com/code-keeper/billing-app.git
+	url = https://github.com/0xlislim/billing-app.git
 [submodule "api-gateway"]
 	path = api-gateway
-	url = https://6ab7e5f2330452d9e06766c5-371223.node-eu-d241.iximiuz.com/code-keeper/api-gateway.git
+	url = https://github.com/0xlislim/api-gateway.git
 [submodule "infrastructure-configuration"]
 	path = infrastructure-configuration
-	url = https://6ab7e5f2330452d9e06766c5-371223.node-eu-d241.iximiuz.com/code-keeper/infrastructure-configuration.git
+	url = https://github.com/0xlislim/infrastructure-configuration.git

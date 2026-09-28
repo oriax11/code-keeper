@@ -1,12 +1,12 @@
 [submodule "inventory-app"]
 	path = inventory-app
-	url = git@6ab7e5f2330452d9e06766c5-36e164.node-eu-d241.iximiuz.com:core-keeper/inventory-app.git
+	url = https://6ab7e5f2330452d9e06766c5-371223.node-eu-d241.iximiuz.com/code-keeper/inventory-app.git
 [submodule "billing-app"]
 	path = billing-app
-	url = git@6ab7e5f2330452d9e06766c5-36e164.node-eu-d241.iximiuz.com:core-keeper/billing-app.git
+	url = https://6ab7e5f2330452d9e06766c5-371223.node-eu-d241.iximiuz.com/code-keeper/billing-app.git
 [submodule "api-gateway"]
 	path = api-gateway
-	url = git@6ab7e5f2330452d9e06766c5-36e164.node-eu-d241.iximiuz.com:core-keeper/api-gateway.git
+	url = https://6ab7e5f2330452d9e06766c5-371223.node-eu-d241.iximiuz.com/code-keeper/api-gateway.git
 [submodule "infrastructure-configuration"]
 	path = infrastructure-configuration
-	url = git@6ab7e5f2330452d9e06766c5-36e164.node-eu-d241.iximiuz.com:core-keeper/infrastructure-configuration.git
+	url = https://6ab7e5f2330452d9e06766c5-371223.node-eu-d241.iximiuz.com/code-keeper/infrastructure-configuration.git

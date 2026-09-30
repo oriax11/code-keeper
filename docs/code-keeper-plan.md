@@ -32,7 +32,7 @@ CI/CD repositories, and a GitLab instance + runners deployed with Ansible.
 | Terraform IaC exists | Done — refactored to 2 symmetric envs + GitLab HTTP backend (Phase 1) |
 | Staging + production environments | Terraform ready; not yet applied (needs pipeline) |
 | Infra repo + pipeline (Init/Validate/Plan/Apply Staging/Approval/Apply Prod) | Repo done; **pipeline pending (Phase 4)** |
-| CI per app (Build/Test/Scan/Containerization) | Pipeline files written; **not yet run on GitLab (Phase 5)** |
+| CI per app (Build/Test/Scan/Containerization) | ✅ **Running on GitLab** — all 3 `main` pipelines green through `containerize`; images in `1ee5lim/*` (Phase 5) |
 | CD per app (Deploy Staging/Approval/Deploy Prod) | Pipeline files written; **not yet run on GitLab (Phase 6)** |
 | Each app in its own repo | Done — 4 GitLab projects in `core-keeper` group (Phase 2) |
 | GitLab + runners via Ansible | GitLab live; Ansible moved into infra repo (Phase 7 — verify evidence) |
@@ -173,9 +173,9 @@ Host: iximiuz Labs, 10 GB RAM / 800 GB disk, persistent.
 | 2.5 | **Repo reconciliation** — match GitLab reality (group `core-keeper`, repo names), rebuild infra as standalone repo, move Ansible into it, 4 submodules in umbrella, restore umbrella origin, fix CD service names, fix ansible `external_url` | ✅ Done |
 | 3 | Tests — pytest suites per app | ✅ Done (in Phase 2) — 18 tests passing |
 | 4 | Infrastructure pipeline (`.gitlab-ci.yml`: Init/Validate/Plan/Apply Staging/Approval/Apply Prod) | ✅ File done + locally validated (commit `5cf53d9`) — first live run pending push + CI vars |
-| 5 | CI pipeline per app — run Build/Test/Scan/Containerization **on GitLab** | ⬜ Pending (files exist; runner-tag defect fixed in Phase 4: all jobs now tagged `code-keeper,docker`) |
+| 5 | CI pipeline per app — run Build/Test/Scan/Containerization **on GitLab** | ✅ **Done** — `main` pipelines #28/#29/#30 green, images published to `1ee5lim/*` (see `code-keeper-phase5-log.md`) |
 | 6 | CD pipeline per app — Deploy Staging/Approval/Deploy Prod **on GitLab** | ⬜ Pending (files exist) |
-| 7 | Ansible: GitLab + runners — GitLab live since Phase 7 deployment by oriax11; **verification pass done** (syntax-check ✓, `--list-tasks` evidence ✓, config matches live instance, protected-branch gap found & fixed) — live re-run pending | 🔶 Verified locally — re-run pending |
+| 7 | Ansible: GitLab + runners — GitLab live since Phase 7 deployment by oriax11; **verification pass done** (syntax-check ✓, `--list-tasks` evidence ✓, config matches live instance, protected-branch gap found & fixed) — runner registration made **self-healing** in Phase 5 (re-registers only when GitLab rejects the token; tokens are no longer rotated on every run) | ✅ Verified & hardened |
 | 8 | Security hardening — AWS OIDC role + masked CI vars, least-privilege IAM, dependency updates | ⬜ Pending |
 | 9 | Documentation & audit prep — umbrella README, role-play prep, evidence collection | ⬜ Pending |
 
@@ -199,10 +199,11 @@ Host: iximiuz Labs, 10 GB RAM / 800 GB disk, persistent.
 
 ## 8. Open items
 
-1. **SSH access to GitLab** — local public key
-   (`ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIItsSkXKowosv8+Qicayd0G1Y8PGt9D4CJIzz0zWgZkS aesslima@talentMachine`)
-   must be added in GitLab (User Settings → SSH Keys), then push the 4 repos
-   and the umbrella. Until then the submodules are local-only.
+1. ~~**SSH access to GitLab**~~ — **resolved in Phase 5**: all 4 repos are on GitLab over HTTPS
+   (local `origin` remotes + `~/.git-credentials` repointed after the node was re-provisioned from
+   `…-d1d94d…` to `…-098e3d…`). No SSH key is required. **Remaining:** the umbrella's submodule
+   gitlinks are behind the new `main` heads (`b8e56bd2` / `8e4a4d72` / `556e628a` / `085ad6d`) and
+   need a bump + push.
 2. **Dependency updates** — include Dependabot/Renovate or a manual
    documented process (audit: "update dependencies and tools regularly").
 3. **AWS OIDC design** — GitLab OIDC provider in AWS, IAM role

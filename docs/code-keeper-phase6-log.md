@@ -241,16 +241,150 @@ a stall.
 
 ---
 
-## 9. Phase 6 Sign-Off — Partial
+## 9. Day 2 — CD Path Fixed and Proven End to End
+
+**Log Date:** 2026-10-01
+
+Yesterday the app→infra handoff had never executed. Today it did, repeatedly, and each attempt
+exposed a distinct defect. All are now fixed and the path is proven.
+
+### Step 9.1 — What the first real runs revealed
+
+Three consecutive failures, each one layer deeper than the last:
+
+| Infra pipeline | Symptom | Actual cause |
+|---|---|---|
+| #93 | `ClientException: ... must also specify a value for 'executionRoleArn'` | `register-task-definition` omitted `--execution-role-arn` |
+| #96 | `ClientException: Container.image contains invalid characters` | image was the literal `$IMAGE_NAME:$IMAGE_TAG` |
+| #106 | `Invalid setting for container ... At least one of 'memory' or 'memoryReservation'` | task-level `cpu`/`memory` not passed back |
+
+The first was found and fixed by oriax11 (`317b6ef`) before I started.
+
+**Root cause of the second: `trigger:variables` does not expand variables defined in the file's
+own `variables:` block.** The app sent the text `$IMAGE_NAME`; `test -n` accepted it because the
+string is non-empty, and `[ "$IMAGE_TAG" != "latest" ]` accepted it because it isn't the word
+"latest". Every guard passed and the failure only surfaced inside ECS. All three apps were affected
+identically, not just inventory.
+
+`$CI_COMMIT_SHA` **does** expand — verified, not assumed. Observed downstream:
+`docker.io/1ee5lim/api-gateway-app:544e47e521bd8c1d1914dda3a86bbd90ed9fe825`.
+
+### Step 9.2 — Guards: convert a silent wrong deploy into a loud stop
+
+`trigger-validate` previously could not detect the failure it existed to prevent. It now:
+
+- rejects any residual `$` in `APP_NAME`/`IMAGE_NAME`/`IMAGE_TAG`;
+- validates `IMAGE_NAME` against an image-reference grammar;
+- requires `IMAGE_TAG` to be a hex commit SHA (7–64 chars), not merely "not the word latest".
+
+Regression-tested **10/10**, including the exact `$IMAGE_NAME`/`$IMAGE_TAG` pair that caused this,
+plus `latest`, `main`, `v1.2.3`, an empty value, an unknown service and a space in the image name.
+
+### Step 9.3 — Second production gate
+
+`apply-production` gained `when: manual` on main. Previously any push put production one stray
+click away — and on 09-30 and 10-01 it was clicked twice, failing on `AccessDenied` both times.
+
+### Step 9.4 — Task-level settings must be passed back
+
+`register-task-definition` rebuilds the task from scratch. Only `--family`,
+`--execution-role-arn` and `--container-definitions` were supplied, but `cpu` (256) and `memory`
+(512) live at the **task** level here — the containers carry none — so ECS could not account for
+them. The script now reads `taskRoleArn`, `networkMode`, `cpu`, `memory` and
+`requiresCompatibilities` from the live revision and passes them through, so it stays correct if
+Terraform ever retunes sizing.
+
+**Two bugs I introduced and caught before they reached CI:**
+
+1. `TD_ARGS` was built ~30 lines before `$WORKDIR/patched.json` exists, so the container-definitions
+   path would have resolved to `file:///patched.json`.
+2. I first parsed the settings with `cut` on `--output text`. `requiresCompatibilities` is a *list*
+   and renders on its own line, so tab-splitting folded `FARGATE` into the `networkMode`/`cpu`/
+   `memory` values. Caught by testing the parsing against live AWS before trusting it, and rewritten
+   with `jq`, which the script already depends on.
+
+Verified by registering a real revision (`staging-inventory:2`) with exactly these arguments:
+accepted, `256/512/awsvpc`. The service still pointed at `:1`; `:2` was inert.
+
+### Step 9.5 — Also fixed
+
+- `.gitignore`: `*.tfplan` never matched CI's extensionless `tfplan-<env>`, so a resource-bearing
+  plan file was committable.
+- api-gateway `urllib3` 2.7.0 → 2.8.0, clearing two HIGH findings: CVE-2026-97687 (traffic
+  interception via HTTPS proxy TLS config override) and CVE-2026-97689 (DoS via unbounded memory
+  in the chunk parser). `scan` is now clean.
+
+### Step 9.6 — End-to-end proof, including §11 isolation
+
+`api-gateway` main push → `build/test/scan/containerize` → trigger → infra #116:
+
+```
+trigger-validate  success   guards passed
+capture-image     success
+deploy-staging    success
+  registered new task definition revision: staging-api-gateway:2
+  updated staging-api-gateway-service to staging-api-gateway:2
+  OK staging-api-gateway-service is stable on ...:544e47e5...
+deploy-approval   manual    ← production gate holding
+```
+
+**Final state — only the named service moved:**
+
+| Service | Revision | Image | State |
+|---|---|---|---|
+| `staging-inventory-service` | `:1` | `inventory-app@sha256:69a0ee72…` | `COMPLETED` 2/2 — **untouched** |
+| `staging-billing-service` | `:1` | `billing-app@sha256:38a13852…` | `COMPLETED` 2/2 — **untouched** |
+| `staging-api-gateway-service` | `:2` | `api-gateway-app:544e47e5…` | `COMPLETED` 2/2 — **deployed** |
+
+§11 isolation is no longer an untested claim. Deploying one app changed exactly that app.
+
+The rollout took ~9 minutes to report `COMPLETED` because the three app services share one target
+group (`staging-app`) and ECS waits for target deregistration. One target sat in `draining` /
+`Target.DeregistrationInProgress` for several minutes. Both tasks were `RUNNING`/`HEALTHY` well
+before that. Not a fault, but a slow gate worth knowing about.
+
+### Step 9.7 — New conflict: Terraform pins digests, CD deploys SHA tags
+
+`staging.tfvars` pins `api_gateway_image` to an immutable digest:
+
+```
+api_gateway_image = "docker.io/1ee5lim/api-gateway-app@sha256:350d1571…"
+```
+
+but the service now runs `…/api-gateway-app:544e47e5…`. **The next `apply-staging` will revert
+every CD deploy** — `plan-staging` will stop reporting `No changes` and will show the task
+definition drifting back to the pinned digest.
+
+Digest pinning (Phase 5/6 decision) and per-commit CD deployment are structurally in conflict.
+This needs a deliberate decision before the next infra apply; it is not a bug I should pick a
+resolution for unilaterally.
+
+---
+
+## 10. Phase 6 Sign-Off
 
 **Met:** the staging stack is live and healthy on AWS; its state is in the GitLab HTTP backend and
 shared with CI; CI has least-privilege read access sufficient to verify it and provably cannot
-provision; the production approval gate is in place and holding.
+provision; the production approval gate is in place and holds on both the Terraform and CD paths.
 
-**Not met:** the CD mechanism itself — app pipeline triggers infra pipeline with
-`APP_NAME`/`IMAGE_NAME`/`IMAGE_TAG`, infra deploys only the named service — has been built and
-committed but **never executed**. Section 11 isolation remains an untested claim. Production has
-not been applied.
+**Met since yesterday:** the CD path is no longer theoretical. App pipeline → infra pipeline →
+single-service deploy is proven end to end, and **§11 isolation is demonstrated**: deploying
+`api-gateway` left `inventory` and `billing` on their original revisions and images.
 
-**Next:** trigger an app deploy end-to-end and confirm exactly one service's task definition
-changes; then the production apply; then `destroy-all.sh --plan` for the idle teardown.
+**Not met:** production has never been applied, and `destroy-all.sh --plan` has not been run.
+
+### Open items
+
+1. ⬜ **Resolve the digest-pin vs SHA-tag conflict** (Step 9.7) before the next `apply-staging`,
+   which will otherwise revert every CD deploy.
+2. ⬜ **`scan` has `allow_failure: true`** in all three apps. Two HIGH CVEs shipped in a green
+   pipeline yesterday. Worth deciding whether findings should block.
+3. ⬜ **Production apply** — held at the gate; roughly double the running cost.
+4. ⬜ **`destroy-all.sh --plan`** for the idle teardown; the default mode is *not* read-only.
+5. ⬜ **CD path unproven for `inventory` and `billing`** — only `api-gateway` has been deployed this
+   way. All three share one script and one code path, but only one has actually run.
+6. ⬜ **Infra images are pinned but not reproducible** — `tools/setup_db.sh` and `tools/setup_rq.sh`
+   were never committed (requested from oriax11).
+
+**Next:** decide the digest/tag question, deploy the remaining two apps to confirm the path, then
+production, then `destroy-all.sh --plan` for the idle period.

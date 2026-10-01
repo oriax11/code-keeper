@@ -143,6 +143,28 @@ unilaterally.
 
 No permissions boundary. No group memberships. `AdministratorAccess` **not** attached.
 
+### ⚠️ A second, unrelated administrator identity exists in the account
+
+`cloud-design-deployer` — created 2026-09-11 by the original project's
+`scripts/bootstrap-iam.sh` — holds **`AdministratorAccess`** and has an **active access key**
+(`AKIAQDC2J2DQRWRLT2E5`). Last CloudTrail activity 2026-09-17, i.e. it has been idle since.
+
+It is not used by Code-Keeper. It is nevertheless a full-account administrator with a live key,
+which is exactly what an audit flags. **Not deleted** — that is destructive and it may be wanted as
+evidence. Recommended action, subject to your call:
+
+```bash
+aws iam delete-access-key --user-name cloud-design-deployer \
+  --access-key-id AKIAQDC2J2DQRWRLT2E5 --profile root   # do this first
+aws iam delete-user --user-name cloud-design-deployer --profile root
+```
+
+Revoke the key before the user, so there is never a window with neither.
+
+`scripts/bootstrap-iam.sh` — the script that created it — defaulted to `POLICY_MODE=admin` and
+attached `AdministratorAccess` when run bare. Fixed on 2026-10-01: the default is now `scoped`, and
+`admin` requires typing `yes-i-understand`.
+
 Verified denied: `ec2:CreateVpc`, `iam:CreateRole`, `cloudwatch:PutDashboard`,
 `secretsmanager:PutSecret`.
 

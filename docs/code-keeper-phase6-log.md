@@ -92,8 +92,10 @@ inventory-app → docker.io/1ee5lim/inventory-app@sha256:69a0ee72f4e4fc0d645581d
   config, which persists the GitLab state token in plaintext. The token
   (`glpat-…`, `api` scope, Maintainer on the infra project) appeared in a transcript.
 - **Status:** ⬜ Not yet revoked. The user acknowledged and intends to rotate later.
-- **Required action:** Revoke the token ending `0w0xhvwo5`, recreate with the same scope, update the
-  `TF_STATE_TOKEN` CI variable, and re-run `terraform init -reconfigure` locally.
+- **Required action:** Revoke the leaked `api`-scope Maintainer token, recreate with the same
+  scope, update the `TF_STATE_TOKEN` CI variable, and re-run `terraform init -reconfigure` locally.
+  (Done — the token was rotated on 2026-10-01. A 12-character suffix of it had been written into
+  this file; it has since been scrubbed rather than left for a reader to reason about.)
 - **Process note:** Extracting only the needed fields (`backend.type`, `backend.config.address`)
   would have answered the question without exposing the secret. Reading a file that is known to
   contain credentials should be done field-by-field, not wholesale.

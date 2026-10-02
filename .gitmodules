@@ -1,12 +1,24 @@
+# Submodules resolve from the GitHub mirror, over SSH.
+#
+# These repos are private, so HTTPS fails on a clean machine with
+# "could not read Username for 'https://github.com'" and the clone aborts.
+# SSH is the only scheme that works unattended, and it is what the bootstrap
+# script and every existing checkout already use.
+#
+# NOTE: `git submodule sync` rewrites each submodule's `origin` from the URLs
+# below, which would point it at the GitHub mirror. That is NOT what we want:
+# origin must be GitLab (the deployment controller); github is the mirror.
+# scripts/bootstrap-new-machine.sh re-points origin to GitLab after cloning,
+# so run it after any sync.
 [submodule "inventory-app"]
 	path = inventory-app
-	url = https://github.com/0xlislim/inventory-app.git
+	url = git@github.com:0xlislim/inventory-app.git
 [submodule "billing-app"]
 	path = billing-app
-	url = https://github.com/0xlislim/billing-app.git
+	url = git@github.com:0xlislim/billing-app.git
 [submodule "api-gateway"]
 	path = api-gateway
-	url = https://github.com/0xlislim/api-gateway.git
+	url = git@github.com:0xlislim/api-gateway.git
 [submodule "infrastructure-configuration"]
 	path = infrastructure-configuration
-	url = https://github.com/0xlislim/infrastructure-configuration.git
+	url = git@github.com:0xlislim/infrastructure-configuration.git

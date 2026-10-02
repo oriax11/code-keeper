@@ -324,6 +324,7 @@ The general lesson behind 8 and 9: **distinguish "absent" from "could not look",
 
 | Document | Contents |
 |---|---|
+| [`docs/ARCHITECTURE-DIAGRAMS.md`](docs/ARCHITECTURE-DIAGRAMS.md) | **colour-coded Mermaid diagrams + an audit checklist** |
 | [`docs/message.txt`](docs/message.txt) | **authoritative** infra/CD design spec |
 | [`docs/HANDOVER.md`](docs/HANDOVER.md) | current state — read this first to pick the project up cold |
 | [`docs/NEW-MACHINE-SETUP.md`](docs/NEW-MACHINE-SETUP.md) | standing up a new machine, and the traps |

@@ -159,20 +159,19 @@ flowchart LR
         direction TB
         I["init"] --> V["validate"]
         subgraph PLAN["plan"]
-            VP["verify-image-pins<br/>rejects any tag, needs a digest"]
             PS["plan-staging"] --> PP["plan-production"]
         end
         AS["apply-staging"] --> APPR["approval · manual"] --> AP["apply-production"]
-        VP --> PS
-        PP --> AS
-        DS["deploy-staging<br/>resolves tag → digest,<br/>registers ONE service"] --> PIN["pin-image<br/>writes digest back to .example"]
-        PIN --> DA["deploy-approval · manual"] --> DP["deploy-production"]
+        PS --> AS
+        PP --> AP
+        DS["deploy-staging<br/>resolves tag → digest,<br/>registers ONE service"] --> DA["deploy-approval · manual"] --> DP["deploy-production"]
     end
 
-    T -.->|"needs: [verify-image-pins]"| VP
+    IGN["Terraform ignores container_definitions after create<br/>so CD and Terraform never fight over the image"]
+    DS -.-> IGN
     INF --> AWS[("AWS us-east-1<br/>006631837921")]
 
-    FAIL["⚠️ apply-production is EXPECTED to fail<br/>scoped identity cannot build in prod"]
+    FAIL["⚠️ apply-production only fails when it has real changes to make<br/>a no-op plan needs no write permissions"]
     AP -.-> FAIL
 
     classDef appci fill:#eceff1,stroke:#455a64,stroke-width:2px,color:#000
@@ -182,21 +181,22 @@ flowchart LR
     classDef warn fill:#fff8e1,stroke:#f9a825,stroke-width:2px,color:#000
 
     class B,T,S,C,SCAN appci
-    class I,V,VP,PS,PP,AS,APPR,AP,DS,PIN,DA cd
+    class I,V,PS,PP,AS,APPR,AP,DS,DA,DP cd
     class REG,AWS store
-    class FAIL deny
+    class FAIL,IGN deny
     class S warn
 ```
 
-### Two things an auditor will ask about
+### Three things an auditor will ask about
 
 **`scan` is `allow_failure: true`.** Two HIGH CVEs shipped inside a green pipeline on 2026-09-30.
-Findings are reported but do not fail the build. This is a known, accepted gap — see
-`docs/HANDOVER.md` §9.1.
+Findings are reported but do not fail the build. This is a known, open decision.
 
-**`apply-production` fails by design.** The CI identity can *deploy* to production but cannot
-*provision* in production, so that job is red in the steady state. That is the least-privilege model
-working, not a regression.
+**`apply-production` is not reliably red.** The CI identity cannot *provision* in production, so an
+apply with real changes to make fails on `AccessDenied`. But an apply whose plan is **empty** needs
+no write permissions at all, and succeeds. Expect this job to go green on a no-op plan. That is not
+evidence the identity can write to production — verify with the `ec2:CreateVpc` probe below, not by
+reading this job's colour.
 
 ---
 
@@ -344,42 +344,61 @@ flowchart LR
 
 ---
 
-## 7. Supply chain — how an image reaches a running task
+## 7. Who owns the container image
 
-Digest pinning end to end. Tags proved mutable here: tag `544e47e` resolved to two different digests
-on the same day.
+CD owns the image. Terraform creates the service and then **ignores** `container_definitions`
+afterwards, so the two can no longer fight over it.
+
+This replaces the earlier digest-pinning scheme (`pin-image.sh` + `check-image-pins.sh`), which is
+removed. Those two scripts failed repeatedly — `diff` missing from the CI image, `git` missing from
+it, and a `terraform apply` reverting a deploy so the recorded pin became a rollback made to look
+intentional. Moving ownership to one actor removed the conflict instead of policing it.
 
 ```mermaid
 flowchart TB
     SRC(["Source commit<br/>on main"]) --> BUILD["CI builds image"]
-    BUILD --> TAGGED["tag pushed<br/>1ee5lim/app:544e47e<br/>⚠️ mutable"]
-    TAGGED --> TRIG["trigger infra pipeline<br/>with IMAGE_TAG"]
-    TRIG --> RESOLVE["deploy-service.sh<br/>resolves tag → digest<br/>FROM ECS, not the registry"]
-    RESOLVE --> REG["register-task-definition<br/>image written by @sha256"]
+    BUILD --> TAGGED["tag pushed<br/>1ee5lim/app:&lt;sha&gt;"]
+    TAGGED --> TRIG["trigger infra pipeline<br/>APP_NAME / IMAGE_NAME / IMAGE_TAG"]
+    TRIG --> RESOLVE["deploy-service.sh<br/>resolves tag → digest at deploy time"]
+    RESOLVE --> REG["register-task-definition<br/>container_definitions set by digest"]
     REG --> RUN["ECS runs the digest-pinned image"]
-    RUN --> READBACK["read digest back OUT of the<br/>task definition the deploy wrote"]
-    READBACK --> PIN["pin-image.sh<br/>rewrites tracked .tfvars.example"]
-    PIN --> GUARD["check-image-pins.sh<br/>fails CI if any pin is a tag"]
 
-    RACE(["Why read from ECS and not the registry?<br/>The tag can move between the deploy and the pin.<br/>Reading the registry would be a race."])
+    TF["Terraform<br/>creates the service once"] -.->|"lifecycle ignore_changes<br/>= [container_definitions]"| REG
 
-    RESOLVE -.-> RACE
+    OWN["Single owner per field:<br/>CD owns the image after creation.<br/>Terraform owns everything else."]
+
+    REG -.-> OWN
+
+    NOTE(["No pin to record, so no drift to police.<br/>Nothing reverts a deploy, because<br/>Terraform no longer manages the image."])
+
+    OWN -.-> NOTE
 
     classDef step fill:#e8eaf6,stroke:#3949ab,stroke-width:1px,color:#000
     classDef ok fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000
-    classDef warn fill:#fff8e1,stroke:#f9a825,stroke-width:2px,color:#000
-    classDef note fill:#fce4ec,stroke:#c2185b,color:#000
+    classDef tf fill:#eceff1,stroke:#455a64,stroke-width:2px,color:#000
+    classDef note fill:#fff8e1,stroke:#f9a825,color:#000
 
-    class SRC,BUILD,TAGGED,TRIG,RESOLVE,REG,READBACK,PIN,GUARD step
+    class SRC,BUILD,TAGGED,TRIG,RESOLVE,REG step
     class RUN ok
-    class TAGGED warn
-    class RACE note
+    class TF tf
+    class OWN,NOTE note
 ```
 
-**Chain of custody for auditors:** `.tfvars.example` is the tracked source of truth; the working
-`.tfvars` is gitignored and regenerated from it; `check-image-pins.sh` runs in the `plan` stage for
-both environments and fails if any pin is a tag. An auditor can verify every running image against
-a tracked file with no access to the registry.
+The digest is still resolved from the registry and written into the task definition, so a running task
+is always pinned to immutable bytes. What is gone is the second writer that used to overwrite it.
+
+**Chain of custody for auditors:** every running task definition names an immutable `@sha256`
+digest, and `deploy-service.sh` records the resolved digest and asserts the service actually runs it
+before the job is allowed to succeed. To verify, read the task definition directly:
+
+```bash
+aws ecs describe-services --cluster staging-cluster \
+  --services staging-inventory-service \
+  --query 'services[0].taskDefinition' --output text
+```
+
+There is deliberately no tracked file to compare it against. The earlier pin comparison is gone, so
+the task definition itself is the record.
 
 ---
 
@@ -428,13 +447,14 @@ Each item is reproducible with a command, so the audit does not depend on a huma
 | 1 | Both environments match their configuration | `terraform plan` → `No changes` |
 | 2 | State is the shared state, not an empty one | `terraform state list \| wc -l` → **73** |
 | 3 | ALB identity is correct | `terraform state show module.alb.aws_lb.main` → expected `name` |
-| 4 | Every running image is digest-pinned | `scripts/check-image-pins.sh staging` and `production` |
+| 4 | Every running image is digest-pinned | `aws ecs describe-task-definition` → image ends `@sha256:` |
 | 5 | CI identity cannot provision | `aws ec2 create-vpc --profile code-keeper` → **DENIED** |
 | 6 | CI identity is not root | `aws sts get-caller-identity --profile code-keeper` → `…:user/gitlab-ci-deploy` |
 | 7 | IAM matches the repo | `./scripts/bootstrap-new-machine.sh --verify-only` → three policies `match` |
 | 8 | Auth is enforced, not decorative | `scripts/test-api-as-user.sh` → 401 then 200, 4/4 |
 | 9 | Deploys are isolated | observe one service revision moves, others do not |
 | 10 | Terraform is pinned | `terraform version` → exactly **1.10.5**, same as CI |
+| 11 | Terraform will not revert a CD deploy | `terraform plan` after a deploy proposes **no** image change |
 
 Run item 7 first. It is the cheapest check that covers the most, and it reports drift rather than
 asserting absence.

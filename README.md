@@ -2,7 +2,7 @@
 
 Three Python microservices on AWS ECS Fargate behind an Application Load Balancer, provisioned by **Terraform** and deployed exclusively through **GitLab CI**.
 
-The whole design follows from one rule, taken from `docs/message.txt`:
+The whole design follows from one rule, taken from `docs/design.md`:
 
 > **App pipelines hold no AWS credentials.** They build, test, scan and containerize an image, then *trigger* the infrastructure repo with `APP_NAME` / `IMAGE_NAME` / `IMAGE_TAG`. The infra repo deploys exactly the named service, and only that service.
 
@@ -15,7 +15,7 @@ This repository is an **umbrella**: it contains the documentation and pins four 
 - [Architecture](#architecture)
 - [Repository layout](#repository-layout)
 - [The two pipelines](#the-two-pipelines)
-- [Image pinning](#image-pinning)
+- [Who owns the container image](#who-owns-the-container-image)
 - [Environments](#environments)
 - [Recreating the project](#recreating-the-project)
 - [Quick start](#quick-start)
@@ -90,7 +90,7 @@ Every submodule has **two** remotes, and the distinction matters:
 
 The umbrella exists **only** on GitHub (`oriax11/code-keeper`). There is no umbrella project on GitLab, so do not add an `origin` for it.
 
-> **A fix that cannot be pushed to `origin` has not been made.** During this project a security fix was committed only to the mirror while GitLab was unreachable, then destroyed locally by a `git reset --hard origin/main`. It surfaced only when someone diffed `github/main` against `origin/main`. See `docs/HANDOVER.md` §6.
+> **A fix that cannot be pushed to `origin` has not been made.** During this project a security fix was committed only to the mirror while GitLab was unreachable, then destroyed locally by a `git reset --hard origin/main`. It surfaced only when someone diffed `github/main` against `origin/main`.
 
 ### GitLab projects
 
@@ -117,7 +117,7 @@ build → test → scan → containerize
 
 Push to `main` and, if everything passes, the app **triggers** the infra repo with `APP_NAME` / `IMAGE_NAME` / `IMAGE_TAG`. It cannot deploy anything itself, because it holds no AWS credentials.
 
-> ⚠️ `scan` is currently `allow_failure: true`. Two HIGH CVEs once shipped inside a green pipeline. Whether findings should block is an open decision (`docs/HANDOVER.md` §9.1).
+> ⚠️ `scan` is currently `allow_failure: true`. Two HIGH CVEs once shipped inside a green pipeline. Whether findings should block is an open decision.
 
 ### Infra CD: the deployment controller
 
@@ -130,26 +130,46 @@ init → validate → plan → apply-staging → approval → apply-production
 Deploy path (triggered by an app pipeline):
 
 ```text
-trigger-validate → deploy-staging → pin-image → deploy-approval → deploy-production
+trigger-validate → deploy-staging → deploy-approval → deploy-production
 ```
 
-`verify-image-pins` runs in the `plan` stage for both environments, and `plan-*` jobs declare `needs: [verify-image-pins]`, so an unpinned image fails the pipeline before anything is applied.
-
-`deploy-staging` resolves the tag to a digest, re-registers **only** the named service's task definition, waits for it to stabilize, then `pin-image.sh` writes the resulting digest back into the tracked `.tfvars.example`.
+`deploy-staging` resolves the tag to a digest, re-registers **only** the named service's task
+definition, waits for it to stabilize, then asserts the service actually runs the digest it intended.
+`deploy-approval` is a manual gate before production.
 
 Isolation is proven, not assumed: deploying `api-gateway` moved only `staging-api-gateway-service` to a new revision while `inventory` and `billing` kept their images untouched.
 
 ---
 
-## Image pinning
+## Who owns the container image
 
-Images are pinned **by digest** in both the tfvars *and* the ECS task definitions.
+**CD owns it.** Terraform creates the ECS service and then ignores `container_definitions` for the
+rest of its life:
 
-- `.tfvars.example` is the **source of truth**. It is tracked, so drift is visible in review. The working `.tfvars` is gitignored and regenerated from it.
-- `pin-image.sh` reads the digest back **out of the task definition the deploy just wrote**, not from the registry. Reading the registry would be a race: the tag can move between deploy and pin.
-- `check-image-pins.sh` fails CI if any pin is a tag rather than a digest.
+```hcl
+lifecycle { ignore_changes = [container_definitions] }
+```
 
-Tags proved mutable here: the tag `544e47e` resolved to two different digests on the same day.
+That single line is what stops the two systems fighting. Terraform will not revert a CD deploy,
+because it no longer considers the image something it manages.
+
+This replaced an earlier scheme in which the deployed digest was written back into
+`.tfvars.example` by `pin-image.sh` and policed by `check-image-pins.sh`. Both are removed. They
+failed repeatedly in ways that were hard to see:
+
+- `pin-image.sh` used `diff`, which the CI image does not contain — it exited 127, printed nothing,
+  and the change-count guard read that empty output as "0 lines changed".
+- It then used `git`, which the CI image also does not contain. One run failed hard; another
+  **succeeded**, because `git status` failing returned empty output and the job's "did anything
+  change?" test read empty as "no changes".
+- A `terraform apply` running between deploy and pin reverted the task definition, and the pin
+  recorded that reverted digest as truth — a rollback made to look deliberate.
+
+Three failures, one root cause: commands that were never executed in the image CI actually used.
+Assigning ownership to a single actor removes the conflict instead of policing it.
+
+The digest is still resolved from the registry and written into the task definition, so every running
+task is pinned to immutable bytes. What is gone is the second writer.
 
 ---
 
@@ -166,14 +186,18 @@ Two full stacks, provisioned by the same modules: `staging` and `production`.
 | Secret              | `staging/app-secrets`                                 | `production/app-secrets`                          |
 | Terraform resources | 73                                                    | 73                                                |
 
-Live task definitions, with **all images digest-pinned**:
+Live task definitions, every image digest-pinned:
 
 | Service                                 | staging                          | production                          |
 |-----------------------------------------|----------------------------------|-------------------------------------|
 | `staging-api-gateway-service`           | 2/2 · `staging-api-gateway:4`    | 2/2 · `production-api-gateway:2`    |
-| `staging-inventory-service`             | 2/2 · `staging-inventory:1`      | 2/2 · `production-inventory:1`      |
+| `staging-inventory-service`             | 2/2 · `staging-inventory:12`     | 2/2 · `production-inventory:6`     |
 | `staging-billing-service`               | 2/2 · `staging-billing:3`        | 2/2 · `production-billing:1`        |
-| `rabbit-queue`, `inventory-db`, `billing-db` | 1/1 each                    | 1/1 each                            |
+| `staging-rabbit-queue`                  | 1/1 · `:1`                       | 1/1 · `production-rabbit-queue:1`  |
+| `staging-inventory-db` / `-billing-db`  | 1/1 · `:1` each                  | 1/1 · `:1` each                     |
+
+`inventory`'s high revision count is the record of it running the CD path in both environments —
+it is the only service that has done so in production.
 
 Terraform is pinned to **exactly 1.10.5**, matching CI. A newer local Terraform changes plan behaviour and can disagree with CI.
 
@@ -710,7 +734,7 @@ The policies are committed under `infrastructure-configuration/iam/gitlab-ci-dep
 
 ## Traps worth knowing before you touch anything
 
-These are documented in full in `docs/HANDOVER.md` §10 and `docs/NEW-MACHINE-SETUP.md` §6. Each one has already cost real time here.
+These are documented in full in `docs/NEW-MACHINE-SETUP.md` §6. Each one has already cost real time here.
 
 1. **The GitLab node URL rots.** See above. The most likely thing to be stale on any given day.
 2. **`terraform init -reconfigure` discards the cached backend config.** `backend.tf` is deliberately empty, so **all seven `-backend-config` values must be passed together** or it fails with `address argument is required`.
@@ -730,25 +754,22 @@ The general lesson behind 8 and 9: **distinguish "absent" from "could not look",
 
 | Document | Contents |
 |----------|----------|
-| [`docs/message.txt`](docs/message.txt) | **authoritative** infra/CD design spec |
-| [`docs/HANDOVER.md`](docs/HANDOVER.md) | current state; read this first to pick the project up cold |
+| [`docs/design.md`](docs/design.md) | **authoritative** infra/CD design spec |
 | [`docs/NEW-MACHINE-SETUP.md`](docs/NEW-MACHINE-SETUP.md) | standing up a new machine, and the traps |
 | [`docs/code-keeper-plan.md`](docs/code-keeper-plan.md) | master plan, phase status |
 | [`docs/code-keeper-audit.md`](docs/code-keeper-audit.md) | original audit findings |
 | [`docs/code-keeper-phase*-log.md`](docs/) | how the CD path was found broken, and fixed |
 | `infrastructure-configuration/iam/gitlab-ci-deploy/README.md` | CI IAM, permission by permission |
-| `infrastructure-configuration/scripts/check-image-pins.sh` | the digest-pin drift guard |
-| `infrastructure-configuration/scripts/pin-image.sh` | pins the deployed digest back into `.example` |
 | `infrastructure-configuration/scripts/deploy-service.sh` | resolves tag→digest, then registers |
 
 ---
 
 ## Open items
 
-Tracked in full, in priority order, in `docs/HANDOVER.md` §9. The ones that matter most:
+The ones that matter most:
 
 - `scan` is `allow_failure: true`. Decide whether findings should block.
-- `inventory` has never run the CD path; its task definition is still `:1` in both environments.
+- Two files still carry stale node URLs, and both rot on every re-provision: `bootstrap-new-machine.sh` defaults `GITLAB_HOST` to a dead node, and `ansible/group_vars/all/gitlab.yml` hardcodes one two generations old despite its own comment saying it must not. Pass `GITLAB_HOST=` / `GITLAB_EXTERNAL_URL=` instead of editing them.
 - A second, unrelated administrator identity (`cloud-design-deployer`) holds `AdministratorAccess` with a live access key, idle since 2026-09-17. Not used by this project, **not deleted** pending a decision. Recommended order: revoke the key first, then the user.
 - Four AWS/GitLab credentials from earlier transcripts were never rotated.
 - Terraform should own the CI IAM user (needs a bootstrap root module, since the user must exist before Terraform can run).

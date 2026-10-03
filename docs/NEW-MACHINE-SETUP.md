@@ -248,7 +248,8 @@ To tear down later, **use the read-only flag** — the default mode is destructi
 
 ## 8. Related documents
 
-- `docs/HANDOVER.md` — current project state, for picking up cold
+- `README.md` — project state and architecture, for picking up cold
+- `docs/design.md` — the authoritative infra/CD design spec
+- `docs/ARCHITECTURE-DIAGRAMS.md` — colour-coded diagrams and the audit checklist
 - `docs/code-keeper-plan.md` — master plan and phase status
-- `docs/code-keeper-phase6-log.md` — how the CD path was found broken and fixed
 - `infrastructure-configuration/iam/gitlab-ci-deploy/README.md` — CI identity, permission by permission
